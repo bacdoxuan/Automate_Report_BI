@@ -3,6 +3,7 @@ import os
 import logging
 from dotenv import load_dotenv
 from exchange_lib import get_exchange_account, find_and_download_emails
+from extract_zippy import extract_all_zips
 import shutil
 
 # Load biến môi trường từ .env
@@ -30,10 +31,14 @@ LIST_OF_EMAILS = [
 ]
 
 LIST_OF_EMAILS_Z = [
-    "[EXTERNAL]Task name:Automate_3G_ZTE_24h_Data_EMS2",
-    "[EXTERNAL]Task name:Automate_4G_ZTE_24h_Traffic_EMS2",
-    "[EXTERNAL]Task name:Automate_3G_ZTE_Traffic_EMS1",
-    "[EXTERNAL]Task name:Automate_4G_ZTE_Traffic_EMS1",
+    "[EXTERNAL]Task name:Automate_3G_ZTE_Traffic_EMS1_WD",
+    "[EXTERNAL]Task name:Automate_3G_ZTE_User_TP_EMS1_BH",
+    "[EXTERNAL]Task name:Automate_4G_ZTE_Traffic_EMS1_WD",
+    "[EXTERNAL]Task name:Automate_4G_ZTE_User_TP_EMS1_BH",
+    "[EXTERNAL]Task name:Automate_3G_ZTE_Traffic_EMS2_WD",
+    "[EXTERNAL]Task name:Automate_3G_ZTE_User_TP_EMS2_BH",
+    "[EXTERNAL]Task name:Automate_4G_ZTE_Traffic_EMS2_WD",
+    "[EXTERNAL]Task name:Automate_4G_ZTE_User_TP_EMS2_BH",
     # Thêm các tiêu đề email khác vào đây
 ]
 
@@ -125,6 +130,12 @@ def main():
                 print(f"  ✅ {subject}: {len(files)} file")
             else:
                 print(f"  ❌ {subject}: Không tìm thấy file")
+
+    # 6. Giải nén tất cả file ZIP trong thư mục downloads
+    print("\n" + "="*60)
+    print("📦 GIẢI NÉN FILE ZIP")
+    print("="*60 + "\n")
+    extract_all_zips(DOWNLOAD_FOLDER)
 
 
 # Chạy script

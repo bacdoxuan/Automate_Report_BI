@@ -37,13 +37,20 @@ The application uses a two-pass strategy to collect reports from different email
 - **`script.py`** - Main entry point that orchestrates the workflow:
   - Loads credentials from `.env` file
   - Clears the download folder before processing
-  - Executes both email search passes
+  - Executes both email search passes (personal + shared mailbox)
   - Defines all search criteria (subjects, senders, folders)
+  - Triggers automatic ZIP extraction after downloads complete
 
 - **`exchange_lib.py`** - Core library with three main functions:
   - `get_exchange_account()` - Establishes Exchange connection using NTLM authentication
   - `find_subfolder()` - Navigates mailbox folder hierarchy
   - `find_and_download_emails()` - Searches emails by criteria (date range, subject, sender, folder) and downloads attachments
+
+- **`extract_zippy.py`** - ZIP file extraction module (NEW):
+  - `extract_all_zips()` - Finds and extracts all ZIP files in download folder
+  - `extract_and_cleanup_zips()` - Extracts and optionally deletes ZIP files after extraction
+  - UTF-8 encoding support for Windows console
+  - Detailed progress reporting with emoji indicators
 
 - **`testconnection.py`** - Standalone utility for validating Exchange connectivity
 
@@ -55,7 +62,9 @@ script.py (config & orchestration)
         ├─> get_exchange_account() → Exchange connection
         ├─> find_subfolder() → Locate target folder
         └─> find_and_download_emails() → Search & download
-              └─> downloads/ (output directory)
+              └─> downloads/ (XLSX + ZIP files)
+                    └─> extract_zippy.extract_all_zips() → Extract ZIPs
+                          └─> downloads/ (XLSX + CSV files)
 ```
 
 ## Configuration
@@ -79,7 +88,7 @@ Additional configuration in `script.py`:
 
 - `exchangelib` - Microsoft Exchange Web Services (EWS) client
 - `python-dotenv` - Environment variable management
-- Standard library modules: `os`, `logging`, `shutil`, `datetime`
+- Standard library modules: `os`, `logging`, `shutil`, `datetime`, `zipfile`, `pathlib`
 
 ## Important Development Notes
 
@@ -88,6 +97,7 @@ Additional configuration in `script.py`:
 - **Code Organization**: Previous refactoring (commit: 248135b) moved email checking and retrieval logic into the library module to separate concerns between orchestration (script.py) and Exchange operations (exchange_lib.py).
 - **Search Strategy**: Emails are filtered by date range, subject keywords, and sender. The two-pass approach handles both personal mailbox and shared mailbox scenarios with different search criteria for each.
 - **Attachment Filtering**: Downloaded files are filtered by extension during the download process.
+- **ZIP Extraction**: After downloading attachments, the script automatically extracts all ZIP files in the downloads folder to access CSV data files.
 
 ## Logging
 
@@ -95,8 +105,19 @@ Console output includes emoji indicators (✅ for success, ❌ for errors, ℹ�
 
 ## Recent Changes
 
+- Added `extract_zippy.py` module for automatic ZIP file extraction
+- Integrated ZIP extraction into main workflow (script.py)
+- Updated email subject lists for ZTE traffic reports (EMS1 and EMS2 variants)
 - Folder cleanup before processing (ensures fresh data)
 - Code refactoring to move Exchange operations to library module
 - Single file download verification
 - Exchange server connection validation
 
+## Workflow Summary
+
+1. **Connect** to Exchange server (NTLM authentication)
+2. **Clean** downloads folder
+3. **Download Pass 1** - Personal mailbox (4 XLSX files: Throughput, Traffic User, VoLTE, North LTE)
+4. **Download Pass 2** - Shared mailbox (8 ZIP files: 3G/4G ZTE Traffic + User TP for EMS1/EMS2)
+5. **Extract** all ZIP files automatically (8 CSV files extracted)
+6. **Result** - Ready-to-process data files in downloads folder
