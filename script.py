@@ -1,9 +1,16 @@
 
 import os
 import logging
+import pandas as pd
+from datetime import datetime, timedelta
+from pathlib import Path
 from dotenv import load_dotenv
 from exchange_lib import get_exchange_account, find_and_download_emails
 from extract_zippy import extract_all_zips
+from processing_3G_Ericsson import Ericsson3GProcessor
+from processing_3G_ZTE import ZTE3GProcessor
+from processing_4G_Ericsson import Ericsson4GProcessor
+from processing_4G_ZTE import ZTE4GProcessor
 import shutil
 
 # Load biến môi trường từ .env
@@ -136,6 +143,133 @@ def main():
     print("📦 GIẢI NÉN FILE ZIP")
     print("="*60 + "\n")
     extract_all_zips(DOWNLOAD_FOLDER)
+
+    # 7. Xử lý dữ liệu từ 4 processors
+    print("\n" + "="*60)
+    print("🔄 XỬ LÝ DỮ LIỆU")
+    print("="*60 + "\n")
+    
+    # Process 3G Ericsson
+    print("📊 Processing 3G Ericsson...")
+    processor_3g_eric = Ericsson3GProcessor(download_folder=DOWNLOAD_FOLDER)
+    processor_3g_eric.load_all_3g_data()
+    processor_3g_eric.transform_all()
+    processor_3g_eric.merge_final_result()
+    processor_3g_eric.standardize_columns()
+    processor_3g_eric.clean_data()
+    df_3g_eric_site = processor_3g_eric.aggregate_by_site()
+    print(f"✅ 3G Ericsson: {len(df_3g_eric_site):,} sites\n")
+    
+    # Process 3G ZTE
+    print("📊 Processing 3G ZTE...")
+    processor_3g_zte = ZTE3GProcessor(download_folder=DOWNLOAD_FOLDER)
+    processor_3g_zte.load_all_3g_zte_data()
+    processor_3g_zte.merge_final_result()
+    processor_3g_zte.standardize_columns()
+    processor_3g_zte.clean_data()
+    df_3g_zte_site = processor_3g_zte.aggregate_by_site()
+    print(f"✅ 3G ZTE: {len(df_3g_zte_site):,} sites\n")
+    
+    # Process 4G Ericsson
+    print("📊 Processing 4G Ericsson...")
+    processor_4g_eric = Ericsson4GProcessor(download_folder=DOWNLOAD_FOLDER)
+    processor_4g_eric.load_all_4g_ericsson_data()
+    processor_4g_eric.merge_final_result()
+    processor_4g_eric.standardize_columns()
+    processor_4g_eric.clean_data()
+    df_4g_eric_site = processor_4g_eric.aggregate_by_site()
+    print(f"✅ 4G Ericsson: {len(df_4g_eric_site):,} sites\n")
+    
+    # Process 4G ZTE
+    print("📊 Processing 4G ZTE...")
+    processor_4g_zte = ZTE4GProcessor(download_folder=DOWNLOAD_FOLDER)
+    processor_4g_zte.load_all_4g_zte_data()
+    processor_4g_zte.merge_final_result()
+    processor_4g_zte.standardize_columns()
+    processor_4g_zte.clean_data()
+    df_4g_zte_site = processor_4g_zte.aggregate_by_site()
+    print(f"✅ 4G ZTE: {len(df_4g_zte_site):,} sites\n")
+    
+    # 8. Merge 3G data (Ericsson + ZTE)
+    print("🔗 Merging 3G data...")
+    df_3g_site = pd.concat([df_3g_eric_site, df_3g_zte_site], ignore_index=True)
+    print(f"✅ 3G Combined: {len(df_3g_site):,} sites\n")
+    
+    # 9. Merge 4G data (Ericsson + ZTE)
+    print("🔗 Merging 4G data...")
+    df_4g_site = pd.concat([df_4g_eric_site, df_4g_zte_site], ignore_index=True)
+    print(f"✅ 4G Combined: {len(df_4g_site):,} sites\n")
+    
+    # 10. Merge 3G + 4G data
+    print("🔗 Merging 3G + 4G data...")
+    df_site_data = pd.merge(
+        df_3g_site,
+        df_4g_site,
+        on='SiteID',
+        how='outer'
+    ).fillna(0)
+    print(f"✅ Site Data: {len(df_site_data):,} sites\n")
+    
+    # 11. Load SiteLocation and add location data
+    print("📍 Adding location data...")
+    site_location_path = Path(__file__).parent / "SiteLocation.csv"
+    df_location = pd.read_csv(site_location_path, usecols=['Site_ID', 'Long', 'Lat'])
+    
+    # Add Date column (yesterday)
+    yesterday = datetime.now() - timedelta(days=1)
+    df_site_data['Date'] = yesterday.strftime('%Y-%m-%d')
+    
+    # Lookup Long and Lat
+    location_dict_long = dict(zip(df_location['Site_ID'], df_location['Long']))
+    location_dict_lat = dict(zip(df_location['Site_ID'], df_location['Lat']))
+    
+    df_site_data['Long'] = df_site_data['SiteID'].map(location_dict_long).fillna(0)
+    df_site_data['Lat'] = df_site_data['SiteID'].map(location_dict_lat).fillna(0)
+    
+    # Reorder columns
+    final_columns = [
+        'Date', 'SiteID', 'Long', 'Lat',
+        '3G_User', '3G_Speed', '3G_Voice', '3G_Data',
+        '4G_User', '4G_Speed', '4G_Voice', '4G_Data'
+    ]
+    df_site_data = df_site_data[final_columns]
+    print(f"✅ Added location data\n")
+    
+    # 12. Save to Aggregate.xlsx
+    print("💾 Saving to Aggregate.xlsx...")
+    aggregate_file = Path(__file__).parent / "Aggregate.xlsx"
+    
+    if aggregate_file.exists():
+        # Load existing data
+        df_existing = pd.read_excel(aggregate_file)
+        
+        # Append new data
+        df_combined = pd.concat([df_existing, df_site_data], ignore_index=True)
+        
+        # Convert Date to datetime
+        df_combined['Date'] = pd.to_datetime(df_combined['Date'])
+        
+        # Keep only last 30 days
+        cutoff_date = datetime.now() - timedelta(days=30)
+        df_combined = df_combined[df_combined['Date'] >= cutoff_date]
+        
+        # Sort by Date
+        df_combined = df_combined.sort_values('Date')
+        
+        print(f"✅ Appended to existing file")
+        print(f"📊 Total records: {len(df_combined):,} (last 30 days)")
+    else:
+        df_combined = df_site_data
+        print(f"✅ Created new file")
+        print(f"📊 Total records: {len(df_combined):,}")
+    
+    # Save to Excel
+    df_combined.to_excel(aggregate_file, index=False)
+    print(f"✅ Saved to {aggregate_file.name}\n")
+    
+    print("="*60)
+    print("🎉 DATA PROCESSING COMPLETED!")
+    print("="*60)
 
 
 # Chạy script
