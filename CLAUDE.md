@@ -197,6 +197,12 @@ Console output includes emoji indicators (✅ for success, ❌ for errors, ℹ�
 
 ## Recent Changes
 
+- **Logging & Notification System:**
+  - Implemented `Logger` class to capture console output to file
+  - Created `notification.py` module for automated email reporting
+  - Added `send_email` capability to `exchange_lib.py`
+  - Integrated error handling in `script.py` to catch failures and send alerts
+  - Configured automatic success/failure emails with attached logs
 - **Data Processing Pipeline (Complete):**
   - Added `processing_3G_Ericsson.py` - Process 3G Ericsson XLSX files with transformation logic
   - Added `processing_3G_ZTE.py` - Process 3G ZTE CSV files with pattern matching

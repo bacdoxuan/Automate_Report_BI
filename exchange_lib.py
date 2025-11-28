@@ -215,3 +215,54 @@ def find_and_download_emails(account, folder_name, sender_email, subject_list,
     print(f"  📁 Thư mục lưu file: {os.path.abspath(download_folder)}")
     
     return result
+
+def send_email(account, recipients, subject, body, attachments=None):
+    """
+    Gửi email thông báo kết quả
+    
+    Args:
+        account: Đối tượng Account đã kết nối
+        recipients: List email người nhận
+        subject: Tiêu đề email
+        body: Nội dung email
+        attachments: List đường dẫn file đính kèm (optional)
+    """
+    from exchangelib import Message, Mailbox, FileAttachment
+    
+    try:
+        print(f"\n📧 Đang gửi email tới: {', '.join(recipients)}")
+        
+        # Tạo danh sách người nhận
+        to_recipients = [Mailbox(email_address=r) for r in recipients]
+        
+        # Tạo message
+        m = Message(
+            account=account,
+            folder=account.sent,
+            subject=subject,
+            body=body,
+            to_recipients=to_recipients
+        )
+        
+        # Đính kèm file nếu có
+        if attachments:
+            for filepath in attachments:
+                if os.path.exists(filepath):
+                    with open(filepath, 'rb') as f:
+                        content = f.read()
+                    
+                    filename = os.path.basename(filepath)
+                    file_att = FileAttachment(name=filename, content=content)
+                    m.attach(file_att)
+                    print(f"   📎 Đã đính kèm: {filename}")
+                else:
+                    print(f"   ⚠️ Không tìm thấy file đính kèm: {filepath}")
+        
+        # Gửi email
+        m.send()
+        print("✅ Gửi email thành công!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Lỗi khi gửi email: {str(e)}")
+        return False
