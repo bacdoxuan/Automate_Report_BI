@@ -268,6 +268,119 @@ class ZTE4GProcessor:
         print(f"\nData types:\n{df.dtypes}")
         print(f"\nFirst 5 rows:\n{df.head()}")
         print(f"\nMemory usage: {df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
+    
+    def standardize_columns(self) -> pd.DataFrame:
+        """
+        Standardize column names to common format
+        
+        Returns:
+            DataFrame with standardized columns: 4G_Cell_ID, 4G_User, 4G_Speed, 4G_Voice, 4G_Data
+        """
+        print("\n" + "=" * 60)
+        print("🔄 STANDARDIZING COLUMN NAMES")
+        print("=" * 60)
+        
+        try:
+            df = self.dataframes['4G_ZTE_DATA'].copy()
+            
+            # Rename columns to standard format
+            df = df.rename(columns={
+                'Cell Name': '4G_Cell_ID',
+                'Average DL Active User Number': '4G_User',
+                'DL_THP_PER_USER(kbps)': '4G_Speed',
+                '[LTE]Average Number of QCI1(Traffic)(Erl)': '4G_Voice',
+                'Data(MB)': '4G_Data'
+            })
+            
+            print(f"✅ Columns standardized")
+            print(f"📋 New columns: {list(df.columns)}")
+            
+            # Store standardized result
+            self.dataframes['4G_Standardized'] = df
+            
+            return df
+            
+        except Exception as e:
+            print(f"\n❌ Error during standardization: {str(e)}")
+            raise
+    
+    def clean_data(self) -> pd.DataFrame:
+        """
+        Clean data by removing rows with invalid values
+        - Remove rows where 4G_Data = 0
+        
+        Returns:
+            DataFrame with cleaned data
+        """
+        print("\n" + "=" * 60)
+        print("🧹 CLEANING DATA")
+        print("=" * 60)
+        
+        try:
+            df = self.dataframes['4G_Standardized'].copy()
+            original_count = len(df)
+            
+            # Remove rows where 4G_Data = 0
+            df_clean = df[df['4G_Data'] != 0]
+            
+            removed_count = original_count - len(df_clean)
+            
+            print(f"✅ Data cleaning completed")
+            print(f"📊 Original rows: {original_count:,}")
+            print(f"   • Removed {removed_count:,} rows with 4G_Data = 0")
+            print(f"📊 Remaining rows: {len(df_clean):,}")
+            
+            # Store cleaned result
+            self.dataframes['4G_Cleaned'] = df_clean
+            
+            return df_clean
+            
+        except Exception as e:
+            print(f"\n❌ Error during cleaning: {str(e)}")
+            raise
+    
+    def aggregate_by_site(self) -> pd.DataFrame:
+        """
+        Aggregate cell-level data to site-level data
+        - Extract SiteID from 4G_Cell_ID (characters at index 1-6, 0-based)
+        - Aggregate: User, Voice, Data by sum; Speed by average
+        
+        Returns:
+            DataFrame aggregated by SiteID: SiteID, 4G_User, 4G_Speed, 4G_Voice, 4G_Data
+        """
+        print("\n" + "=" * 60)
+        print("📊 AGGREGATING DATA BY SITE")
+        print("=" * 60)
+        
+        try:
+            df = self.dataframes['4G_Cleaned'].copy()
+            
+            # Extract SiteID: characters from index 1 to 6 (0-based indexing)
+            df['SiteID'] = df['4G_Cell_ID'].astype(str).str[1:7]
+            
+            print(f"✅ Extracted SiteID from 4G_Cell_ID")
+            print(f"📊 Sample SiteIDs: {df['SiteID'].head().tolist()}")
+            
+            # Aggregate by SiteID
+            aggregated = df.groupby('SiteID').agg({
+                '4G_User': 'sum',      # Sum of users
+                '4G_Speed': 'mean',    # Average speed
+                '4G_Voice': 'sum',     # Sum of voice traffic
+                '4G_Data': 'sum'       # Sum of data traffic
+            }).reset_index()
+            
+            print(f"\n✅ Aggregation completed")
+            print(f"📊 Result: {len(aggregated):,} sites (from {len(df):,} cells)")
+            print(f"📋 Columns: {list(aggregated.columns)}")
+            
+            # Store aggregated result
+            self.dataframes['4G_ZTE_Site_Data'] = aggregated
+            
+            return aggregated
+            
+        except Exception as e:
+            print(f"\n❌ Error during aggregation: {str(e)}")
+            raise
 
 
 def main():
@@ -288,6 +401,21 @@ def main():
     print("📋 FINAL RESULT INFORMATION")
     print("=" * 60)
     processor.print_dataframe_info('4G_ZTE_DATA')
+    
+    # Standardize column names
+    standardized = processor.standardize_columns()
+    
+    # Clean data (remove invalid values)
+    cleaned = processor.clean_data()
+    
+    # Aggregate by site
+    site_data = processor.aggregate_by_site()
+    
+    # Print site-level data info
+    print("\n" + "=" * 60)
+    print("📋 SITE-LEVEL DATA INFORMATION")
+    print("=" * 60)
+    processor.print_dataframe_info('4G_ZTE_Site_Data')
 
 
 if __name__ == "__main__":
