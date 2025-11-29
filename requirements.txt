@@ -2,3 +2,5 @@ pandas
 openpyxl
 exchangelib
 python-dotenv
+gradio
+apscheduler

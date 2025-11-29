@@ -1,0 +1,73 @@
+import sqlite3
+from typing import List, Dict, Any, Optional
+
+DB_FILE = "schedules.db"
+
+def init_db():
+    """Khởi tạo cơ sở dữ liệu và bảng `schedules` nếu chưa tồn tại."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_name TEXT NOT NULL UNIQUE,
+                frequency TEXT NOT NULL,
+                day_of_week TEXT,
+                run_time TEXT NOT NULL,
+                skip_email BOOLEAN NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT 1
+            )
+        """)
+        conn.commit()
+
+def add_schedule(name: str, freq: str, day: Optional[str], time: str, skip: bool, active: bool) -> int:
+    """Thêm một lịch mới vào CSDL."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO schedules (job_name, frequency, day_of_week, run_time, skip_email, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (name, freq, day, time, skip, active)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+def delete_schedule(schedule_id: int):
+    """Xóa một lịch khỏi CSDL bằng ID."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        conn.commit()
+
+def update_schedule_status(schedule_id: int, is_active: bool):
+    """Cập nhật trạng thái active của một lịch."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE schedules SET is_active = ? WHERE id = ?",
+            (is_active, schedule_id)
+        )
+        conn.commit()
+
+def get_all_schedules() -> List[Dict[str, Any]]:
+    """Lấy tất cả các lịch đã lưu từ CSDL."""
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM schedules ORDER BY id")
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+def get_schedule(schedule_id: int) -> Optional[Dict[str, Any]]:
+    """Lấy một lịch cụ thể bằng ID."""
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+# Khởi tạo CSDL khi module được import
+init_db()
