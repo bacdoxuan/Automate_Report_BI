@@ -260,8 +260,9 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
                         with gr.Row():
                             activate_button = gr.Button("✅ Kích hoạt")
                             deactivate_button = gr.Button("⛔ Dừng")
+                        with gr.Row():
                             history_button = gr.Button("📜 Xem Lịch sử")
-                        delete_button = gr.Button("🗑️ Xóa", variant="stop")
+                            delete_button = gr.Button("🗑️ Xóa", variant="stop")
 
                     with gr.Group(visible=False) as confirm_delete_group:
                         confirm_delete_text = gr.Markdown()
