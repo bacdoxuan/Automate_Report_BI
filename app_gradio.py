@@ -223,7 +223,10 @@ def handle_view_history(schedule_choice: str):
 
 # --- Gradio UI ---
 with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
-    gr.Markdown("# Bảng điều khiển tác vụ tự động")
+    with gr.Row(elem_id="app-header"):
+        gr.Markdown(
+            '<h1 style="margin: 0;">Hệ thống quản lý báo cáo tự động - VNM</h1>'
+        )
 
     with gr.Tabs():
         with gr.TabItem("▶️ Chạy thủ công"):
