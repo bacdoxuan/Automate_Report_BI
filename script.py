@@ -15,6 +15,7 @@ from processing_3G_ZTE import ZTE3GProcessor
 from processing_4G_Ericsson import Ericsson4GProcessor
 from processing_4G_ZTE import ZTE4GProcessor
 import shutil
+import argparse
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -129,87 +130,103 @@ def setup_logging():
 # =================================================================
 
 def main():
+    # Thêm parser cho command-line arguments
+    parser = argparse.ArgumentParser(description="Automated BI Report Generator.")
+    parser.add_argument(
+        "-s", "--skip-email",
+        action="store_true",
+        help="Skip email connection and download steps, process local files directly."
+    )
+    args = parser.parse_args()
+
     # 1. Setup Logging
     log_path = setup_logging()
     print(f"📝 Log file: {log_path}")
     print(f"🕒 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    if args.skip_email:
+        print("\n" + "="*60)
+        print("⏭️  --skip-email flag detected. Bỏ qua các bước download và giải nén.")
+        print("   Đảm bảo file đã được giải nén và sẵn sàng trong thư mục 'downloads'.")
+        print("="*60 + "\n")
     
     account = None
     current_step = "Initialization"
     
     try:
-        # 2. Kết nối Exchange
-        current_step = "Connect Exchange"
-        print("\n" + "="*60)
-        print("🔌 KẾT NỐI EXCHANGE SERVER")
-        print("="*60 + "\n")
-        account = get_exchange_account()
-        
-        if not account:
-            raise Exception("Không thể kết nối tới Exchange Server")
+        if not args.skip_email:
+            # 2. Kết nối Exchange
+            current_step = "Connect Exchange"
+            print("\n" + "="*60)
+            print("🔌 KẾT NỐI EXCHANGE SERVER")
+            print("="*60 + "\n")
+            account = get_exchange_account()
+            
+            if not account:
+                raise Exception("Không thể kết nối tới Exchange Server")
 
-        # 3. Dọn dẹp thư mục downloads
-        current_step = "Clean Downloads"
-        print("\n" + "="*60)
-        print("🧹 DỌN DẸP THƯ MỤC")
-        print("="*60 + "\n")
-        
-        if os.path.exists(DOWNLOAD_FOLDER):
-            shutil.rmtree(DOWNLOAD_FOLDER)
-            print(f"✅ Đã xóa thư mục: {DOWNLOAD_FOLDER}")
-        
-        os.makedirs(DOWNLOAD_FOLDER)
-        print(f"✅ Đã tạo lại thư mục: {DOWNLOAD_FOLDER}")
+            # 3. Dọn dẹp thư mục downloads
+            current_step = "Clean Downloads"
+            print("\n" + "="*60)
+            print("🧹 DỌN DẸP THƯ MỤC")
+            print("="*60 + "\n")
+            
+            if os.path.exists(DOWNLOAD_FOLDER):
+                shutil.rmtree(DOWNLOAD_FOLDER)
+                print(f"✅ Đã xóa thư mục: {DOWNLOAD_FOLDER}")
+            
+            os.makedirs(DOWNLOAD_FOLDER)
+            print(f"✅ Đã tạo lại thư mục: {DOWNLOAD_FOLDER}")
 
-        # 4. Tìm và download từ danh sách subject của mình
-        current_step = "Download Pass 1 (Personal)"
-        print("\n" + "="*60)
-        print("📥 TẢI FILE TỪ EMAIL (PASS 1)")
-        print("="*60 + "\n")
-        
-        results = find_and_download_emails(
-            account=account,
-            folder_name=FOLDER_NAME,
-            sender_email=SENDER_EMAIL,
-            subject_list=LIST_OF_EMAILS,
-            download_folder=DOWNLOAD_FOLDER,
-            days_back=DAYS_TO_SEARCH,
-            allowed_extensions=ALLOWED_EXTENSIONS
-        )
+            # 4. Tìm và download từ danh sách subject của mình
+            current_step = "Download Pass 1 (Personal)"
+            print("\n" + "="*60)
+            print("📥 TẢI FILE TỪ EMAIL (PASS 1)")
+            print("="*60 + "\n")
+            
+            results = find_and_download_emails(
+                account=account,
+                folder_name=FOLDER_NAME,
+                sender_email=SENDER_EMAIL,
+                subject_list=LIST_OF_EMAILS,
+                download_folder=DOWNLOAD_FOLDER,
+                days_back=DAYS_TO_SEARCH,
+                allowed_extensions=ALLOWED_EXTENSIONS
+            )
 
-        # 5. Hiển thị kết quả chi tiết (tùy chọn)
-        if results:
-            print("\n📋 Chi tiết kết quả:")
-            for subject, files in results.items():
-                if files:
-                    print(f"  ✅ {subject}: {len(files)} file")
-                else:
-                    print(f"  ❌ {subject}: Không tìm thấy file")
+            # 5. Hiển thị kết quả chi tiết (tùy chọn)
+            if results:
+                print("\n📋 Chi tiết kết quả:")
+                for subject, files in results.items():
+                    if files:
+                        print(f"  ✅ {subject}: {len(files)} file")
+                    else:
+                        print(f"  ❌ {subject}: Không tìm thấy file")
 
-        # 6. Tìm và download từ danh sách subject của Z
-        current_step = "Download Pass 2 (Shared)"
-        print("\n" + "="*60)
-        print("📥 TẢI FILE TỪ EMAIL (PASS 2)")
-        print("="*60 + "\n")
-        
-        results_z = find_and_download_emails(
-            account=account,
-            folder_name=FOLDER_NAME_Z,
-            sender_email=SENDER_EMAIL_Z,
-            subject_list=LIST_OF_EMAILS_Z,
-            download_folder=DOWNLOAD_FOLDER,
-            days_back=DAYS_TO_SEARCH,
-            allowed_extensions=ALLOWED_EXTENSIONS
-        )
+            # 6. Tìm và download từ danh sách subject của Z
+            current_step = "Download Pass 2 (Shared)"
+            print("\n" + "="*60)
+            print("📥 TẢI FILE TỪ EMAIL (PASS 2)")
+            print("="*60 + "\n")
+            
+            results_z = find_and_download_emails(
+                account=account,
+                folder_name=FOLDER_NAME_Z,
+                sender_email=SENDER_EMAIL_Z,
+                subject_list=LIST_OF_EMAILS_Z,
+                download_folder=DOWNLOAD_FOLDER,
+                days_back=DAYS_TO_SEARCH,
+                allowed_extensions=ALLOWED_EXTENSIONS
+            )
 
-        # 7. Hiển thị kết quả chi tiết (tùy chọn) của Z
-        if results_z:
-            print("\n📋 Chi tiết kết quả:")
-            for subject, files in results_z.items():
-                if files:
-                    print(f"  ✅ {subject}: {len(files)} file")
-                else:
-                    print(f"  ❌ {subject}: Không tìm thấy file")
+            # 7. Hiển thị kết quả chi tiết (tùy chọn) của Z
+            if results_z:
+                print("\n📋 Chi tiết kết quả:")
+                for subject, files in results_z.items():
+                    if files:
+                        print(f"  ✅ {subject}: {len(files)} file")
+                    else:
+                        print(f"  ❌ {subject}: Không tìm thấy file")
 
         # 8. Giải nén tất cả file ZIP trong thư mục downloads
         current_step = "Extract ZIPs"
@@ -269,18 +286,25 @@ def main():
         df_4g_zte_site = processor_4g_zte.aggregate_by_site()
         print(f"✅ 4G ZTE: {len(df_4g_zte_site):,} sites\n")
         
-        # 10. Merge 3G data (Ericsson + ZTE)
-        current_step = "Merging 3G Data"
-        print("🔗 Merging 3G data...")
+        # 10. Concat 3G data (Ericsson + ZTE)
+        # Finished processing data for all files, now combine all data to final files
+        print("\n" + "="*60)
+        print("🔗 CONCATENATING DATA 3G AND 4G")
+        print("="*60 + "\n")
+        current_step = "Concatenating 3G Data"
+        print("🔗 Concatenating 3G data...")
         df_3g_site = pd.concat([df_3g_eric_site, df_3g_zte_site], ignore_index=True)
         print(f"✅ 3G Combined: {len(df_3g_site):,} sites\n")
         
-        # 11. Merge 4G data (Ericsson + ZTE)
-        current_step = "Merging 4G Data"
-        print("🔗 Merging 4G data...")
+        # 11. Concat 4G data (Ericsson + ZTE)
+        current_step = "Concatenating 4G Data"
+        print("🔗 Concatenating 4G data...")
         df_4g_site = pd.concat([df_4g_eric_site, df_4g_zte_site], ignore_index=True)
         print(f"✅ 4G Combined: {len(df_4g_site):,} sites\n")
         
+        print("\n" + "="*60)
+        print("🔗 MERGING DATA 3G AND 4G TO ONE DATAFRAME")
+        print("="*60 + "\n")
         # 12. Merge 3G + 4G data
         current_step = "Merging 3G + 4G Data"
         print("🔗 Merging 3G + 4G data...")
