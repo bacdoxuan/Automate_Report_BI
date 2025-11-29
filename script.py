@@ -395,7 +395,12 @@ def main():
             notifier = Notifier(account, RESULT_RECEIVER_LIST, RESULT_EMAIL_SUBJECT)
             notifier.send_failure(step_name=current_step, error_msg=str(e), log_file=log_path)
         else:
-            print("⚠️ Không thể gửi email báo lỗi vì chưa kết nối được Exchange")
+            try:
+                account = get_exchange_account() # try to connect to exchange server again
+                notifier = Notifier(account, RESULT_RECEIVER_LIST, RESULT_EMAIL_SUBJECT)
+                notifier.send_failure(step_name=current_step, error_msg=str(e), log_file=log_path)
+            except Exception as e:
+                print(f"⚠️ Không thể gửi email báo lỗi, lý do: {str(e)}")
 
 if __name__ == "__main__":
     main()
