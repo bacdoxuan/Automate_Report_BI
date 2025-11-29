@@ -277,6 +277,17 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
                 refresh_logs_button = gr.Button("🔄 Làm mới")
             log_content_display = gr.Textbox(label="Nội dung Log", lines=20, interactive=False, autoscroll=True)
 
+        with gr.TabItem("☎️ Liên hệ"):
+            gr.Markdown(
+                """
+                ## Thông tin liên hệ
+                Mọi thắc mắc và hỗ trợ xin liên hệ:
+                - **Tác giả:** Đỗ Xuân Bắc
+                - **Số điện thoại:** 0925007589
+                - **Email:** bac.dx@vietnamobile.com.vn
+                """
+            )
+
     # --- Event Handlers ---
     run_full_button.click(lambda: run_script_manual(False), [], manual_run_status)
     run_skip_email_button.click(lambda: run_script_manual(True), [], manual_run_status)

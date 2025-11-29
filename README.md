@@ -1,36 +1,33 @@
 # Automated BI Report Generator
 
-This project automates the process of generating a daily Business Intelligence (BI) report by processing telecommunications performance data from multiple vendors and technologies.
+This project automates the process of generating a daily Business Intelligence (BI) report by processing telecommunications performance data. It provides a comprehensive web interface for easy management, execution, and monitoring of the data processing tasks.
 
-## Description
+## Web Interface
 
-The script automatically downloads raw data from email attachments, processes it, and aggregates it into a single Excel report. It's designed to handle data from different vendors (Ericsson, ZTE) and technologies (3G, 4G), each with its own specific data format and transformation logic.
+The primary way to interact with this application is through a web interface built with Gradio. To run it, execute:
+```bash
+python app_gradio.py
+```
+The interface provides the following functionalities:
 
-## Features
+- **▶️ Chạy thủ công (Manual Run):** Immediately trigger the data processing pipeline. You can choose to run the full process (including downloading from email) or to run only the local file processing part.
+- **📅 Lịch chạy (Scheduler):**
+    - **Thêm mới lịch chạy (Add New Schedule):** Create new automated jobs. You can define the job name, frequency (daily/weekly), run time, and execution mode (full or skip email).
+    - **Quản lý lịch chạy đã có (Manage Existing Schedules):** View all saved schedules. You can activate, deactivate, delete, or view the execution history for any schedule. The history shows the timestamp, status (OK/NOK), and details for each run.
+- **📄 Xem Logs (View Logs):** View the detailed logs from `script.py` for troubleshooting and monitoring. You can select log files from a dropdown and refresh the list.
+- **☎️ Liên hệ (Contact):** Provides contact information for support.
 
+## Core Features
+
+- **Web-Based Management:** A user-friendly Gradio interface to control and monitor all aspects of the application.
+- **Flexible Task Scheduling:** Powered by APScheduler, allowing for daily or weekly jobs to be scheduled at specific times.
+- **Persistent Schedules:** Schedules are saved in a local SQLite database (`schedules.db`), so they persist even if the application is restarted.
+- **Run History Logging:** Every execution of a scheduled job is logged to the database, recording the time, status (OK/NOK), and any error details.
 - **Automated Data Pipeline:** Fully automates the ETL (Extract, Transform, Load) process.
-- **Email Integration:** Connects to a Microsoft Exchange server to find and download specific email attachments containing the raw data.
-- **Multi-Vendor/Multi-Technology Support:** Includes dedicated processing modules for:
-    - 3G Ericsson
-    - 3G ZTE
-    - 4G Ericsson
-    - 4G ZTE
-- **Complex Data Transformation:**
-    - Performs 'busy hour' calculations for Ericsson data to identify key performance indicators.
-    - Handles different file formats (Excel, CSV).
-    - Standardizes column names across different data sources.
-- **Data Aggregation:** Aggregates cell-level data to a site-level view.
-- **Reporting:** Appends the daily processed data to a master Excel file, maintaining a rolling 30-day history.
-- **Notifications:** Sends email notifications upon successful completion or failure of the process.
-
-## Architecture & Workflow
-
-1.  **Extract:** The main `script.py` initiates the process. It uses `exchange_lib.py` to connect to an MS Exchange server and download specific email attachments (zip files) into a `downloads` directory.
-2.  **Unzip:** The downloaded `.zip` files are extracted using `extract_zippy.py`.
-3.  **Transform:** Four distinct processing modules (`processing_*.py`) handle the core data transformation. They read the raw files, perform calculations (like 'busy hour' for Ericsson), standardize column names, and aggregate the data to the site level based on a common `SiteID`.
-4.  **Load:** The main script merges the four processed DataFrames into a single master DataFrame. This is then enriched with location data from `SiteLocation.csv`.
-5.  **Report:** The final, aggregated data is appended to `Aggregate.xlsx`. The report is pruned to keep only the last 30 days of data.
-6.  **Notify:** `notification.py` sends a status email (success or failure) with logs to a predefined list of recipients.
+- **Email Integration:** Connects to a Microsoft Exchange server to find and download specific email attachments containing raw data.
+- **Multi-Vendor/Multi-Technology Support:** Includes dedicated processing modules for 3G/4G data from Ericsson and ZTE.
+- **Complex Data Transformation:** Performs 'busy hour' calculations, handles various file formats, and standardizes data.
+- **Reporting & Notifications:** Aggregates data into a master Excel file and sends status notifications via email.
 
 ## Setup and Configuration
 
@@ -39,36 +36,47 @@ The script automatically downloads raw data from email attachments, processes it
     pip install -r requirements.txt
     ```
 
-2.  **Environment Variables:** Create a `.env` file in the root of the project directory to store sensitive information. This file should contain the credentials for the Exchange server and email notification settings.
-
+2.  **Environment Variables:** Create a `.env` file in the root of the project to store credentials for the Exchange server and email notifications.
     ```
     EXCHANGE_USERNAME="your_email@example.com"
     EXCHANGE_PASSWORD="your_password"
     EMAIL_RECIPIENTS="recipient1@example.com,recipient2@example.com"
     ```
 
-3.  **Site Location Data:** Ensure you have a `SiteLocation.csv` file in the project root with site location information. It should contain at least `SiteID` and location columns.
+3.  **Site Location Data:** Ensure you have a `SiteLocation.csv` file in the project root with site location information.
 
 ## Usage
 
-To run the entire automated process, execute the main script:
+### 1. Running the Web Interface (Recommended)
 
+Launch the Gradio application:
 ```bash
+python app_gradio.py
+```
+Then open your web browser and navigate to the local URL provided (usually `http://127.0.0.1:7860`). Use the interface to manage schedules and run tasks.
+
+### 2. Running the Script Manually
+
+You can still run the entire ETL process directly from the command line:
+```bash
+# Run the full process
 python script.py
+
+# Run the process but skip the email download part
+python script.py --skip-email
 ```
 
 ## Project Structure
 
-- `script.py`: The main entry point and orchestrator of the ETL pipeline.
+- `app_gradio.py`: The main entry point for the Gradio web interface.
+- `script.py`: The core orchestrator of the ETL pipeline.
+- `scheduler_db.py`: Module for all database interactions (creating tables, adding/deleting/querying schedules and run history).
+- `schedules.db`: The SQLite database file that stores all schedules and run logs.
 - `requirements.txt`: A list of the Python libraries required for this project.
-- `exchange_lib.py`: Module for interacting with the MS Exchange server (downloading attachments, sending emails).
+- `exchange_lib.py`: Module for interacting with the MS Exchange server.
 - `extract_zippy.py`: Utility to unzip downloaded files.
-- `notification.py`: Handles sending success or failure notification emails.
-- `processing_3G_Ericsson.py`: Processor for 3G Ericsson data.
-- `processing_3G_ZTE.py`: Processor for 3G ZTE data.
-- `processing_4G_Ericsson.py`: Processor for 4G Ericsson data.
-- `processing_4G_ZTE.py`: Processor for 4G ZTE data.
-- `.env`: (To be created) Configuration file for credentials and other settings.
-- `SiteLocation.csv`: (To be created) CSV file containing site location data.
+- `notification.py`: Handles sending notification emails.
+- `processing_*.py`: Modules for specific data transformations (3G/4G, Ericsson/ZTE).
 - `downloads/`: Directory where email attachments are stored.
+- `Log/`: Directory containing detailed run logs from `script.py`.
 - `Aggregate.xlsx`: The final, aggregated Excel report.
