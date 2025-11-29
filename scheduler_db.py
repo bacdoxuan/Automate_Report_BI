@@ -1,12 +1,14 @@
 import sqlite3
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 DB_FILE = "schedules.db"
 
 def init_db():
-    """Khởi tạo cơ sở dữ liệu và bảng `schedules` nếu chưa tồn tại."""
+    """Khởi tạo cơ sở dữ liệu và các bảng nếu chưa tồn tại."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
+        # Bảng lưu các lịch chạy
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS schedules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,7 +20,44 @@ def init_db():
                 is_active BOOLEAN NOT NULL DEFAULT 1
             )
         """)
+        # Bảng mới để lưu log các lần chạy
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schedule_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schedule_id INTEGER NOT NULL,
+                run_timestamp TEXT NOT NULL,
+                status TEXT NOT NULL, -- 'OK' hoặc 'NOK'
+                details TEXT,
+                FOREIGN KEY (schedule_id) REFERENCES schedules (id) ON DELETE CASCADE
+            )
+        """)
         conn.commit()
+
+def log_run(schedule_id: int, status: str, details: str):
+    """Ghi lại kết quả một lần chạy của lịch vào CSDL."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO schedule_runs (schedule_id, run_timestamp, status, details)
+            VALUES (?, ?, ?, ?)
+            """,
+            (schedule_id, ts, status, details)
+        )
+        conn.commit()
+
+def get_run_history(schedule_id: int) -> List[Dict[str, Any]]:
+    """Lấy lịch sử chạy của một lịch cụ thể."""
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT run_timestamp, status, details FROM schedule_runs WHERE schedule_id = ? ORDER BY run_timestamp DESC",
+            (schedule_id,)
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
 
 def add_schedule(name: str, freq: str, day: Optional[str], time: str, skip: bool, active: bool) -> int:
     """Thêm một lịch mới vào CSDL."""
@@ -35,9 +74,11 @@ def add_schedule(name: str, freq: str, day: Optional[str], time: str, skip: bool
         return cursor.lastrowid
 
 def delete_schedule(schedule_id: int):
-    """Xóa một lịch khỏi CSDL bằng ID."""
+    """Xóa một lịch và các log chạy liên quan khỏi CSDL bằng ID."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
+        # Bật hỗ trợ khóa ngoại để xóa theo tầng (ON DELETE CASCADE)
+        cursor.execute("PRAGMA foreign_keys = ON")
         cursor.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
         conn.commit()
 
