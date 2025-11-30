@@ -20,6 +20,13 @@ def init_db():
                 is_active BOOLEAN NOT NULL DEFAULT 1
             )
         """)
+        
+        # Migration: Kiểm tra xem cột script_path đã tồn tại chưa, nếu chưa thì thêm vào
+        cursor.execute("PRAGMA table_info(schedules)")
+        columns = [info[1] for info in cursor.fetchall()]
+        if "script_path" not in columns:
+            cursor.execute("ALTER TABLE schedules ADD COLUMN script_path TEXT DEFAULT 'script.py'")
+
         # Bảng mới để lưu log các lần chạy
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS schedule_runs (
@@ -59,16 +66,16 @@ def get_run_history(schedule_id: int) -> List[Dict[str, Any]]:
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
-def add_schedule(name: str, freq: str, day: Optional[str], time: str, skip: bool, active: bool) -> int:
+def add_schedule(name: str, freq: str, day: Optional[str], time: str, skip: bool, active: bool, script_path: str = "script.py") -> int:
     """Thêm một lịch mới vào CSDL."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO schedules (job_name, frequency, day_of_week, run_time, skip_email, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO schedules (job_name, frequency, day_of_week, run_time, skip_email, is_active, script_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (name, freq, day, time, skip, active)
+            (name, freq, day, time, skip, active, script_path)
         )
         conn.commit()
         return cursor.lastrowid

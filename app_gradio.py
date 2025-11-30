@@ -28,6 +28,14 @@ def get_log_files():
     log_files.sort(key=os.path.getmtime, reverse=True)
     return [os.path.basename(f) for f in log_files]
 
+def get_python_scripts():
+    files = glob.glob("*.py")
+    # Ưu tiên script.py lên đầu
+    if "script.py" in files:
+        files.remove("script.py")
+        files.insert(0, "script.py")
+    return files
+
 def view_log_file(log_filename):
     if not log_filename:
         return "Vui lòng chọn một file log để xem."
@@ -38,16 +46,19 @@ def view_log_file(log_filename):
     except Exception as e:
         return f"Lỗi khi đọc file: {e}"
 
-def run_script_manual(skip_email):
+def run_script_manual(skip_email, script_path="script.py"):
     """Starts the script for manual execution and returns immediate UI feedback."""
-    command = [sys.executable, "script.py"]
+    if not script_path:
+        script_path = "script.py"
+    
+    command = [sys.executable, script_path]
     if skip_email:
         command.append("--skip-email")
     try:
         subprocess.Popen(command)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         mode = "Chỉ xử lý file" if skip_email else "Toàn bộ quy trình"
-        return f"[{timestamp}] Đã bắt đầu chạy tác vụ. Chế độ: {mode}. Xem tab 'Xem Logs' để theo dõi chi tiết."
+        return f"[{timestamp}] Đã bắt đầu chạy tác vụ ({script_path}). Chế độ: {mode}. Xem tab 'Xem Logs' để theo dõi chi tiết."
     except Exception as e:
         return f"Lỗi khi bắt đầu tác vụ: {e}"
 
@@ -56,7 +67,11 @@ def run_scheduled_job(schedule_id: int, skip_email: bool):
     Runs the script for a scheduled job, waits for it to complete, and logs the outcome.
     This function is executed by the APScheduler in a background thread.
     """
-    command = [sys.executable, "script.py"]
+    # Lấy thông tin lịch để biết file script cần chạy
+    sched_info = scheduler_db.get_schedule(schedule_id)
+    script_path = sched_info.get('script_path', 'script.py') if sched_info else "script.py"
+
+    command = [sys.executable, script_path]
     if skip_email:
         command.append("--skip-email")
     try:
@@ -72,7 +87,7 @@ def run_scheduled_job(schedule_id: int, skip_email: bool):
             details = "Tác vụ hoàn thành thành công."
         else:
             status = "NOK"
-            details = f"Lỗi khi chạy script.py. Stderr: {process.stderr[-500:]}"
+            details = f"Lỗi khi chạy {script_path}. Stderr: {process.stderr[-500:]}"
         
         scheduler_db.log_run(schedule_id, status, details)
     except Exception as e:
@@ -117,13 +132,16 @@ def sync_scheduler_from_db():
 def load_schedules_as_dataframe():
     schedules = scheduler_db.get_all_schedules()
     if not schedules:
-        return pd.DataFrame(columns=["ID", "Tên Lịch", "Tần Suất", "Ngày/Giờ Chạy", "Bỏ qua Email", "Trạng Thái"])
+        return pd.DataFrame(columns=["ID", "Tên Lịch", "Script", "Tần Suất", "Ngày/Giờ Chạy", "Bỏ qua Email", "Trạng Thái"])
     
     df_data = []
     for s in schedules:
         run_details = f"{s['day_of_week'] if s['day_of_week'] else ''} @ {s['run_time']}".strip()
+        # Xử lý trường hợp script_path có thể chưa có trong các bản ghi cũ
+        script_name = s.get('script_path', 'script.py')
+        
         df_data.append({
-            "ID": s['id'], "Tên Lịch": s['job_name'], "Tần Suất": s['frequency'],
+            "ID": s['id'], "Tên Lịch": s['job_name'], "Script": script_name, "Tần Suất": s['frequency'],
             "Ngày/Giờ Chạy": run_details, "Bỏ qua Email": "Có" if s['skip_email'] else "Không",
             "Trạng Thái": "Hoạt động" if s['is_active'] else "Dừng"
         })
@@ -133,19 +151,23 @@ def get_schedule_choices():
     schedules = scheduler_db.get_all_schedules()
     return [f"{s['job_name']} (ID: {s['id']})" for s in schedules]
 
-def handle_add_schedule(name, freq, day, time, skip, active):
+def handle_add_schedule(name, freq, day, time, skip, active, script_path):
     if not name or not time:
         return "Tên lịch và thời gian chạy không được để trống.", load_schedules_as_dataframe(), gr.Dropdown(choices=get_schedule_choices())
     try:
         day_map = {"Thứ 2": "mon", "Thứ 3": "tue", "Thứ 4": "wed", "Thứ 5": "thu", "Thứ 6": "fri", "Thứ 7": "sat", "Chủ nhật": "sun"}
         day_str = day_map.get(day) if freq == "Hàng tuần" else None
         
-        schedule_id = scheduler_db.add_schedule(name, freq, day_str, time, skip, active)
+        # Sử dụng mặc định script.py nếu không chọn
+        if not script_path:
+            script_path = "script.py"
+
+        schedule_id = scheduler_db.add_schedule(name, freq, day_str, time, skip, active, script_path)
         if active:
             schedule = scheduler_db.get_schedule(schedule_id)
             if schedule: add_job_to_scheduler(schedule)
         
-        return f"Đã thêm lịch '{name}'.", load_schedules_as_dataframe(), gr.Dropdown(choices=get_schedule_choices())
+        return f"Đã thêm lịch '{name}' chạy script '{script_path}'.", load_schedules_as_dataframe(), gr.Dropdown(choices=get_schedule_choices())
     except sqlite3.IntegrityError:
         return f"Lỗi: Tên lịch '{name}' đã tồn tại.", load_schedules_as_dataframe(), gr.Dropdown(choices=get_schedule_choices())
     except Exception as e:
@@ -231,16 +253,42 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
     with gr.Tabs():
         with gr.TabItem("▶️ Chạy thủ công"):
             gr.Markdown("## Chạy tác vụ ngay lập tức")
+            
+            with gr.Row():
+                manual_script_dropdown = gr.Dropdown(
+                    label="Chọn file Script", 
+                    choices=get_python_scripts(), 
+                    value="script.py" if "script.py" in get_python_scripts() else None,
+                    allow_custom_value=True
+                )
+                refresh_scripts_btn = gr.Button("🔄", size="sm", scale=0)
+
             with gr.Row():
                 run_full_button = gr.Button("🚀 Chạy toàn bộ quy trình")
                 run_skip_email_button = gr.Button("⏩ Chạy chỉ xử lý file")
             manual_run_status = gr.Textbox(label="Trạng thái", interactive=False)
+
+            refresh_scripts_btn.click(
+                lambda: gr.Dropdown(choices=get_python_scripts()), 
+                None, 
+                manual_script_dropdown
+            )
 
         with gr.TabItem("📅 Lịch chạy"):
             with gr.Tabs():
                 with gr.TabItem("Thêm mới lịch chạy"):
                     gr.Markdown("### Thêm lịch mới")
                     add_name = gr.Textbox(label="Tên lịch (duy nhất)")
+                    
+                    with gr.Row():
+                        add_script = gr.Dropdown(
+                            label="File Script chạy",
+                            choices=get_python_scripts(),
+                            value="script.py" if "script.py" in get_python_scripts() else None,
+                            allow_custom_value=True
+                        )
+                        refresh_add_script_btn = gr.Button("🔄", size="sm", scale=0)
+
                     with gr.Row():
                         add_freq = gr.Radio(["Hàng ngày", "Hàng tuần"], label="Tần suất", value="Hàng ngày")
                         add_dow = gr.Dropdown(["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"], label="Ngày trong tuần", value="Thứ 2", visible=False)
@@ -248,7 +296,13 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
                     add_skip = gr.Checkbox(label="Chỉ xử lý file (bỏ qua email)")
                     add_active = gr.Checkbox(label="Kích hoạt ngay sau khi thêm", value=True)
                     add_button = gr.Button("Thêm lịch mới", variant="primary")
+                    
                     add_freq.change(lambda f: gr.update(visible=f == "Hàng tuần"), add_freq, add_dow)
+                    refresh_add_script_btn.click(
+                        lambda: gr.Dropdown(choices=get_python_scripts()),
+                        None,
+                        add_script
+                    )
                     
                 with gr.TabItem("Quản lý lịch chạy đã có"):
                     gr.Markdown("### Danh sách và quản lý lịch chạy")
@@ -293,10 +347,23 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
             )
 
     # --- Event Handlers ---
-    run_full_button.click(lambda: run_script_manual(False), [], manual_run_status)
-    run_skip_email_button.click(lambda: run_script_manual(True), [], manual_run_status)
+    # Manual run handlers updated to pass script path
+    run_full_button.click(
+        fn=run_script_manual, 
+        inputs=[gr.State(False), manual_script_dropdown], 
+        outputs=[manual_run_status]
+    )
+    run_skip_email_button.click(
+        fn=run_script_manual, 
+        inputs=[gr.State(True), manual_script_dropdown], 
+        outputs=[manual_run_status]
+    )
     
-    add_button.click(fn=handle_add_schedule, inputs=[add_name, add_freq, add_dow, add_time, add_skip, add_active], outputs=[manage_status, schedules_df, sched_choice])
+    add_button.click(
+        fn=handle_add_schedule, 
+        inputs=[add_name, add_freq, add_dow, add_time, add_skip, add_active, add_script], 
+        outputs=[manage_status, schedules_df, sched_choice]
+    )
 
     activate_button.click(fn=lambda c: handle_toggle_status(c, True), inputs=[sched_choice], outputs=[manage_status, schedules_df])
     deactivate_button.click(fn=lambda c: handle_toggle_status(c, False), inputs=[sched_choice], outputs=[manage_status, schedules_df])
