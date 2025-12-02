@@ -90,3 +90,6 @@ def test_exchange_connection():
         log.exception("Unhandled exception")
 
     return False
+
+if __name__ == "__main__":
+    test_exchange_connection()
