@@ -5,14 +5,16 @@ This project automates the process of generating a daily Business Intelligence (
 ## Web Interface
 
 The primary way to interact with this application is through a web interface built with Gradio. To run it, execute:
+
 ```bash
 python app_gradio.py
 ```
+
 The interface provides the following functionalities:
 
 - **▶️ Chạy thủ công (Manual Run):** Immediately trigger the data processing pipeline. You can choose to run the full process (including downloading from email) or to run only the local file processing part.
 - **📅 Lịch chạy (Scheduler):**
-    - **Thêm mới lịch chạy (Add New Schedule):** Create new automated jobs. You can define the job name, frequency (daily/weekly), run time, and execution mode (full or skip email).
+  - **Thêm mới lịch chạy (Add New Schedule):** Create new automated jobs. You can define the job name, frequency (daily/weekly), run time, and execution mode (full or skip email).
     - **Quản lý lịch chạy đã có (Manage Existing Schedules):** View all saved schedules. You can activate, deactivate, delete, or view the execution history for any schedule. The history shows the timestamp, status (OK/NOK), and details for each run.
 - **📄 Xem Logs (View Logs):** View the detailed logs from `script.py` for troubleshooting and monitoring. You can select log files from a dropdown and refresh the list.
 - **☎️ Liên hệ (Contact):** Provides contact information for support.
@@ -31,33 +33,38 @@ The interface provides the following functionalities:
 
 ## Setup and Configuration
 
-1.  **Install Dependencies:** Install the required Python libraries using the `requirements.txt` file.
+1. **Install Dependencies:** Install the required Python libraries using the `requirements.txt` file.
+
     ```bash
     pip install -r requirements.txt
     ```
 
-2.  **Environment Variables:** Create a `.env` file in the root of the project to store credentials for the Exchange server and email notifications.
-    ```
+2. **Environment Variables:** Create a `.env` file in the root of the project to store credentials for the Exchange server and email notifications.
+
+    ```bash
     EXCHANGE_USERNAME="your_email@example.com"
     EXCHANGE_PASSWORD="your_password"
     EMAIL_RECIPIENTS="recipient1@example.com,recipient2@example.com"
     ```
 
-3.  **Site Location Data:** Ensure you have a `SiteLocation.csv` file in the project root with site location information.
+3. **Site Location Data:** Ensure you have a `SiteLocation.csv` file in the project root with site location information.
 
 ## Usage
 
 ### 1. Running the Web Interface (Recommended)
 
 Launch the Gradio application:
+
 ```bash
 python app_gradio.py
 ```
+
 Then open your web browser and navigate to the local URL provided (usually `http://127.0.0.1:7860`). Use the interface to manage schedules and run tasks.
 
 ### 2. Running the Script Manually
 
 You can still run the entire ETL process directly from the command line:
+
 ```bash
 # Run the full process
 python script.py
