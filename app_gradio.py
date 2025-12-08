@@ -244,7 +244,7 @@ def handle_view_history(schedule_choice: str):
 
 
 # --- Gradio UI ---
-with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
+with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server:
     with gr.Row(elem_id="app-header"):
         gr.Markdown(
             '<h1 style="margin: 0;">Hệ thống quản lý báo cáo tự động - VNM</h1>'
@@ -388,7 +388,7 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as demo:
 
     log_files_dropdown.change(view_log_file, log_files_dropdown, log_content_display)
     refresh_logs_button.click(lambda: (gr.Dropdown(choices=get_log_files()), gr.Textbox(value="")), [], [log_files_dropdown, log_content_display])
-    demo.load(view_log_file, log_files_dropdown, log_content_display)
+    automate_report_server.load(view_log_file, log_files_dropdown, log_content_display)
 
 # --- Startup and Shutdown ---
 sync_scheduler_from_db()
@@ -396,4 +396,4 @@ scheduler.start()
 atexit.register(lambda: scheduler.shutdown())
 
 if __name__ == "__main__":
-    demo.launch()
+    automate_report_server.launch()

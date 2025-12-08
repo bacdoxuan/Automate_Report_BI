@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
 # Email nhận báo cáo kết quả
 RESULT_RECEIVER_LIST = [
     "bac.dx@vietnamobile.com.vn",
-    "thanh.tv@vietnamobile.com.vn",
+    # "thanh.tv@vietnamobile.com.vn",
     # Thêm email người nhận khác vào đây
 ]
 
@@ -334,18 +334,43 @@ def main():
         df_site_data['Lat'] = df_site_data['SiteID'].map(location_dict_lat).fillna(0)
         
         # Reorder columns
-        final_columns = [
+        arranged_columns = [
             'Date', 'SiteID', 'Long', 'Lat',
             '3G_User', '3G_Speed', '3G_Voice', '3G_Data',
             '4G_User', '4G_Speed', '4G_Voice', '4G_Data'
         ]
-        df_site_data = df_site_data[final_columns]
+        df_site_data = df_site_data[arranged_columns]
+        
+        # Rename columns to final names
+        final_column_names = {
+            'SiteID': 'Site',
+            '3G_User': '3G Sub',
+            '3G_Speed': '3G Speed',
+            '3G_Voice': '3G Voice traffic',
+            '3G_Data': '3G Data traffic',
+            '4G_User': '4G Sub',
+            '4G_Speed': '4G Speed',
+            '4G_Voice': '4G Voice traffic',
+            '4G_Data': '4G Data traffic'
+        }
+        df_site_data = df_site_data.rename(columns=final_column_names)
+
         print(f"✅ Added location data\n")
+        
+        # 13.5 Drop rows with Long = 0 or Lat = 0
+        current_step = "Filtering Invalid Coordinates"
+        print("🗺️ Filtering out sites with invalid coordinates...")
+        initial_count = len(df_site_data)
+        df_site_data = df_site_data[(df_site_data['Long'] != 0) & (df_site_data['Lat'] != 0)]
+        filtered_count = len(df_site_data)
+        dropped_count = initial_count - filtered_count
+        print(f"✅ Filtered out {dropped_count:,} sites with Long=0 or Lat=0")
         
         # 14. Save to Aggregate.xlsx
         current_step = "Saving to Excel"
         print("💾 Saving to Aggregate.xlsx...")
-        aggregate_file = Path(__file__).parent / "Aggregate.xlsx"
+        aggregate_file = Path(__file__).parent.parent / "Aggregate.xlsx"
+        print(f'Aggregate file path: {aggregate_file}')
         
         if aggregate_file.exists():
             # Load existing data
