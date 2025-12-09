@@ -107,16 +107,14 @@ class Logger(object):
         self.terminal.flush()
         self.log.flush()
 
-def setup_logging():
+def setup_logging(process_date):
     """Thiết lập logging vào file"""
     log_dir = "Log"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
         
-    # Tên file log theo ngày hôm qua (ngày dữ liệu) hoặc hôm nay (ngày chạy)
-    # User yêu cầu log_<<yesterday>>.txt
-    yesterday = datetime.now() - timedelta(days=1)
-    log_filename = f"log_{yesterday.strftime('%Y-%m-%d')}.txt"
+    # Tên file log theo ngày xử lý (process_date)
+    log_filename = f"log_{process_date.strftime('%Y-%m-%d')}.txt"
     log_path = os.path.join(log_dir, log_filename)
     
     # Redirect stdout và stderr vào file log
@@ -137,11 +135,33 @@ def main():
         action="store_true",
         help="Skip email connection and download steps, process local files directly."
     )
+    parser.add_argument(
+        "-d", "--process-date",
+        type=str,
+        help="Specific date to process (YYYY-MM-DD). Defaults to yesterday if not provided."
+    )
     args = parser.parse_args()
 
+    # Determine processing date
+    if args.process_date:
+        try:
+            process_date = datetime.strptime(args.process_date, "%Y-%m-%d")
+        except ValueError:
+            print("❌ Invalid date format. Please use YYYY-MM-DD.")
+            return
+    else:
+        # Default to yesterday
+        process_date = datetime.now() - timedelta(days=1)
+
+    # Logic: Dữ liệu của ngày T (process_date) nằm trong email gửi ngày T+1
+    # Do đó ngày tìm kiếm email phải là process_date + 1 ngày
+    email_search_date = process_date + timedelta(days=1)
+    
     # 1. Setup Logging
-    log_path = setup_logging()
+    log_path = setup_logging(process_date)
     print(f"📝 Log file: {log_path}")
+    print(f"📅 User Selected Data Date: {process_date.strftime('%Y-%m-%d')}")
+    print(f"📧 Email Search Date: {email_search_date.strftime('%Y-%m-%d')}")
     print(f"🕒 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     if args.skip_email:
@@ -161,7 +181,7 @@ def main():
             print("🔌 KẾT NỐI EXCHANGE SERVER")
             print("="*60 + "\n")
             account = get_exchange_account()
-            
+
             if not account:
                 raise Exception("Không thể kết nối tới Exchange Server")
 
@@ -179,9 +199,9 @@ def main():
             print(f"✅ Đã tạo lại thư mục: {DOWNLOAD_FOLDER}")
 
             # 4. Tìm và download từ danh sách subject của mình
-            current_step = "Download Pass 1 (Personal)"
+            current_step = "Download Ericsson KPIs (Personal)"
             print("\n" + "="*60)
-            print("📥 TẢI FILE TỪ EMAIL (PASS 1)")
+            print("📥 TẢI FILE TỪ EMAIL (Ericsson)")
             print("="*60 + "\n")
             
             results = find_and_download_emails(
@@ -191,7 +211,8 @@ def main():
                 subject_list=LIST_OF_EMAILS,
                 download_folder=DOWNLOAD_FOLDER,
                 days_back=DAYS_TO_SEARCH,
-                allowed_extensions=ALLOWED_EXTENSIONS
+                allowed_extensions=ALLOWED_EXTENSIONS,
+                target_date=email_search_date  # Pass email_search_date
             )
 
             # 5. Hiển thị kết quả chi tiết (tùy chọn)
@@ -204,9 +225,9 @@ def main():
                         print(f"  ❌ {subject}: Không tìm thấy file")
 
             # 6. Tìm và download từ danh sách subject của Z
-            current_step = "Download Pass 2 (Shared)"
+            current_step = "Download ZTE KPIs (Shared)"
             print("\n" + "="*60)
-            print("📥 TẢI FILE TỪ EMAIL (PASS 2)")
+            print("📥 TẢI FILE TỪ EMAIL (ZTE)")
             print("="*60 + "\n")
             
             results_z = find_and_download_emails(
@@ -216,7 +237,8 @@ def main():
                 subject_list=LIST_OF_EMAILS_Z,
                 download_folder=DOWNLOAD_FOLDER,
                 days_back=DAYS_TO_SEARCH,
-                allowed_extensions=ALLOWED_EXTENSIONS
+                allowed_extensions=ALLOWED_EXTENSIONS,
+                target_date=email_search_date  # Pass email_search_date
             )
 
             # 7. Hiển thị kết quả chi tiết (tùy chọn) của Z
@@ -322,9 +344,8 @@ def main():
         site_location_path = Path(__file__).parent / "SiteLocation.csv"
         df_location = pd.read_csv(site_location_path, usecols=['Site_ID', 'Long', 'Lat'])
         
-        # Add Date column (yesterday)
-        yesterday = datetime.now() - timedelta(days=1)
-        df_site_data['Date'] = yesterday.strftime('%Y-%m-%d')
+        # Add Date column (based on process_date)
+        df_site_data['Date'] = process_date.strftime('%Y-%m-%d')
         
         # Lookup Long and Lat
         location_dict_long = dict(zip(df_location['Site_ID'], df_location['Long']))
@@ -421,9 +442,12 @@ def main():
             notifier.send_failure(step_name=current_step, error_msg=str(e), log_file=log_path)
         else:
             try:
-                account = get_exchange_account() # try to connect to exchange server again
-                notifier = Notifier(account, RESULT_RECEIVER_LIST, RESULT_EMAIL_SUBJECT)
-                notifier.send_failure(step_name=current_step, error_msg=str(e), log_file=log_path)
+                # Chỉ thử kết nối lại nếu ban đầu chưa có account và không phải do skip_email
+                if not args.skip_email:
+                    account = get_exchange_account() # try to connect to exchange server again
+                    if account:
+                        notifier = Notifier(account, RESULT_RECEIVER_LIST, RESULT_EMAIL_SUBJECT)
+                        notifier.send_failure(step_name=current_step, error_msg=str(e), log_file=log_path)
             except Exception as e:
                 print(f"⚠️ Không thể gửi email báo lỗi, lý do: {str(e)}")
 

@@ -2,7 +2,7 @@
 import os
 import logging
 from dotenv import load_dotenv
-from exchangelib import Credentials, Account, Configuration, DELEGATE, NTLM, EWSDateTime, FileAttachment
+from exchangelib import Credentials, Account, Configuration, DELEGATE, NTLM, EWSDateTime, FileAttachment, EWSTimeZone
 from exchangelib.errors import AutoDiscoverFailed, TransportError, EWSWarning
 from datetime import datetime, timedelta
 
@@ -47,7 +47,7 @@ def find_subfolder(parent_folder, subfolder_name):
 
 def find_and_download_emails(account, folder_name, sender_email, subject_list, 
                            download_folder="downloads", days_back=0, 
-                           allowed_extensions=None):
+                           allowed_extensions=None, target_date=None):
     """
     Tìm và download attachments từ danh sách email subjects
     
@@ -59,6 +59,7 @@ def find_and_download_emails(account, folder_name, sender_email, subject_list,
         download_folder: Thư mục lưu file tải về
         days_back: Số ngày tìm ngược về quá khứ (0 = hôm nay)
         allowed_extensions: Danh sách các định dạng được phép tải về
+        target_date: Ngày cụ thể cần tìm (datetime object). Nếu có sẽ ưu tiên hơn days_back.
     
     Returns:
         Dictionary {subject: [file paths]} - kết quả download
@@ -88,28 +89,39 @@ def find_and_download_emails(account, folder_name, sender_email, subject_list,
     print(f"🔍 Tìm kiếm trong thư mục: {folder.name}")
     
     # 2. Tạo khoảng thời gian tìm kiếm
-    tz = account.default_timezone
-    target_date = datetime.now().date() - timedelta(days=days_back)
+    # Sử dụng múi giờ Việt Nam để đảm bảo tìm kiếm chính xác theo ngày địa phương
+    try:
+        tz = EWSTimeZone('Asia/Ho_Chi_Minh')
+    except Exception:
+        # Fallback nếu không set được
+        tz = account.default_timezone
+    
+    if target_date:
+        # Nếu có ngày cụ thể
+        search_date = target_date.date() if isinstance(target_date, datetime) else target_date
+    else:
+        # Mặc định dùng days_back
+        search_date = datetime.now().date() - timedelta(days=days_back)
     
     # Bắt đầu ngày
     start_day = EWSDateTime(
-        year=target_date.year,
-        month=target_date.month,
-        day=target_date.day,
+        year=search_date.year,
+        month=search_date.month,
+        day=search_date.day,
         hour=0, minute=0, second=0,
         tzinfo=tz,
     )
     
     # Kết thúc ngày
     end_day = EWSDateTime(
-        year=target_date.year,
-        month=target_date.month,
-        day=target_date.day,
+        year=search_date.year,
+        month=search_date.month,
+        day=search_date.day,
         hour=23, minute=59, second=59,
         tzinfo=tz,
     )
     
-    print(f"📅 Ngày tìm kiếm: {target_date.strftime('%Y-%m-%d')}")
+    print(f"📅 Ngày tìm kiếm: {search_date.strftime('%Y-%m-%d')}")
     
     # 3. Tạo thư mục download nếu chưa tồn tại
     if not os.path.exists(download_folder):
@@ -192,14 +204,8 @@ def find_and_download_emails(account, folder_name, sender_email, subject_list,
                     
                     size = os.path.getsize(local_path)
                     size_str = f"{size/1024:.1f} KB" if size < 1024*1024 else f"{size/(1024*1024):.1f} MB"
-                    
-                    if os.path.exists(local_path):
-                        print(f"     ✅ Downloaded (ghi đè): {filename} ({size_str})")
-                    else:
-                        print(f"     ✅ Downloaded (mới): {filename} ({size_str})")
-                    
+                    print(f"     ✅ Downloaded: {filename} ({size_str})")
                     downloaded_files.append(local_path)
-                    
                 except Exception as e:
                     print(f"     ❌ Lỗi khi download {filename}: {e}")
         

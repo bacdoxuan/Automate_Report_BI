@@ -46,7 +46,7 @@ def view_log_file(log_filename):
     except Exception as e:
         return f"Lỗi khi đọc file: {e}"
 
-def run_script_manual(skip_email, script_path="script.py"):
+def run_script_manual(skip_email, script_path="script.py", process_date=None):
     """Starts the script for manual execution and returns immediate UI feedback."""
     if not script_path:
         script_path = "script.py"
@@ -54,11 +54,21 @@ def run_script_manual(skip_email, script_path="script.py"):
     command = [sys.executable, script_path]
     if skip_email:
         command.append("--skip-email")
+        
+    if process_date:
+        # Validate date format YYYY-MM-DD
+        try:
+            datetime.strptime(process_date, "%Y-%m-%d")
+            command.extend(["--process-date", process_date])
+        except ValueError:
+            return "❌ Lỗi: Định dạng ngày không hợp lệ. Vui lòng dùng YYYY-MM-DD."
+
     try:
         subprocess.Popen(command)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         mode = "Chỉ xử lý file" if skip_email else "Toàn bộ quy trình"
-        return f"[{timestamp}] Đã bắt đầu chạy tác vụ ({script_path}). Chế độ: {mode}. Xem tab 'Xem Logs' để theo dõi chi tiết."
+        date_msg = f" (Ngày: {process_date})" if process_date else " (Ngày: Hôm qua)"
+        return f"[{timestamp}] Đã bắt đầu chạy tác vụ ({script_path}){date_msg}. Chế độ: {mode}. Xem tab 'Xem Logs' để theo dõi chi tiết."
     except Exception as e:
         return f"Lỗi khi bắt đầu tác vụ: {e}"
 
@@ -262,6 +272,13 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
                     allow_custom_value=True
                 )
                 refresh_scripts_btn = gr.Button("🔄", size="sm", scale=0)
+            
+            with gr.Row():
+                manual_date_input = gr.Textbox(
+                    label="Ngày xử lý (YYYY-MM-DD)", 
+                    placeholder="Để trống: Mặc định lấy ngày Hôm qua. Chạy dữ liệu với 1 ngày cụ thể, điền thông tin dạng YYYY-MM-DD, ví dụ: 2024-01-01",
+                    value=""
+                )
 
             with gr.Row():
                 run_full_button = gr.Button("🚀 Chạy toàn bộ quy trình")
@@ -347,15 +364,15 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
             )
 
     # --- Event Handlers ---
-    # Manual run handlers updated to pass script path
+    # Manual run handlers updated to pass script path AND process date
     run_full_button.click(
         fn=run_script_manual, 
-        inputs=[gr.State(False), manual_script_dropdown], 
+        inputs=[gr.State(False), manual_script_dropdown, manual_date_input], 
         outputs=[manual_run_status]
     )
     run_skip_email_button.click(
         fn=run_script_manual, 
-        inputs=[gr.State(True), manual_script_dropdown], 
+        inputs=[gr.State(True), manual_script_dropdown, manual_date_input], 
         outputs=[manual_run_status]
     )
     
@@ -391,9 +408,32 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
     automate_report_server.load(view_log_file, log_files_dropdown, log_content_display)
 
 # --- Startup and Shutdown ---
-sync_scheduler_from_db()
-scheduler.start()
-atexit.register(lambda: scheduler.shutdown())
+print("=" * 60)
+print("Get scheduler from DB...")
+try:
+    sync_scheduler_from_db()
+    print("Get scheduler from DB successfully.")
+except Exception as e:
+    print(f"Error getting scheduler from DB: {e}")
+
+print("\n" + "=" * 60)
+print("Start scheduler...")
+try:
+    scheduler.start()
+    print("Scheduler started successfully.")
+except Exception as e:
+    print(f"Error starting scheduler: {e}")
+
+print("\n" + "=" * 60)
+print("Register shutdown...")
+try:
+    atexit.register(lambda: scheduler.shutdown())
+    print("Register shutdown successfully.")
+except Exception as e:
+    print(f"Error registering shutdown: {e}")
+
+print("\n" + "=" * 60)
+
 
 if __name__ == "__main__":
     automate_report_server.launch()
