@@ -15,12 +15,14 @@ The interface provides the following functionalities:
 - **▶️ Chạy thủ công (Manual Run):** Immediately trigger the data processing pipeline. You can now select a specific Python script (`.py` file) to run. You can choose to run the full process (including downloading from email) or to run only the local file processing part.
 - **📅 Lịch chạy (Scheduler):**
 <<<<<<< HEAD
-    - **Thêm mới lịch chạy (Add New Schedule)::** Create new automated jobs. You can define the job name, frequency (daily/weekly), run time, execution mode (full or skip email), and crucially, **select the Python script to be executed for this schedule**.
-    - **Quản lý lịch chạy đã có (Manage Existing Schedules):** View all saved schedules, including the assigned script path for each. You can activate, deactivate, delete, or view the execution history for any schedule. The history shows the timestamp, status (OK/NOK), and details for each run.
+  - **Thêm mới lịch chạy (Add New Schedule)::** Create new automated jobs. You can define the job name, frequency (daily/weekly), run time, execution mode (full or skip email), and crucially, **select the Python script to be executed for this schedule**.
+  - **Quản lý lịch chạy đã có (Manage Existing Schedules):** View all saved schedules, including the assigned script path for each. You can activate, deactivate, delete, or view the execution history for any schedule. The history shows the timestamp, status (OK/NOK), and details for each run.
 =======
   - **Thêm mới lịch chạy (Add New Schedule):** Create new automated jobs. You can define the job name, frequency (daily/weekly), run time, and execution mode (full or skip email).
     - **Quản lý lịch chạy đã có (Manage Existing Schedules):** View all saved schedules. You can activate, deactivate, delete, or view the execution history for any schedule. The history shows the timestamp, status (OK/NOK), and details for each run.
+
 >>>>>>> 8d811d31a00dda35af7afe62a1f23b8eb225f599
+
 - **📄 Xem Logs (View Logs):** View the detailed logs from `script.py` for troubleshooting and monitoring. You can select log files from a dropdown and refresh the list.
 - **☎️ Liên hệ (Contact):** Provides contact information for support.
 
@@ -67,8 +69,9 @@ python app_gradio.py
 Then open your web browser and navigate to the local URL provided (usually `http://127.0.0.1:7860`). Use the interface to manage schedules and run tasks.
 
 **New Script Selection Feature:**
--   **Manual Run Tab:** On the "▶️ Chạy thủ công" tab, you will find a dropdown menu to select the Python script (`.py` file) you wish to execute. By default, it will be `script.py`. You can choose any other `.py` file present in the project's root directory.
--   **Scheduler Tab:** When adding a new schedule ("Thêm mới lịch chạy"), a similar dropdown is available to specify which script should be run for that particular scheduled job. The chosen script will be stored with the schedule and displayed in the "Quản lý lịch chạy đã có" table.
+
+- **Manual Run Tab:** On the "▶️ Chạy thủ công" tab, you will find a dropdown menu to select the Python script (`.py` file) you wish to execute. By default, it will be `script.py`. You can choose any other `.py` file present in the project's root directory.
+- **Scheduler Tab:** When adding a new schedule ("Thêm mới lịch chạy"), a similar dropdown is available to specify which script should be run for that particular scheduled job. The chosen script will be stored with the schedule and displayed in the "Quản lý lịch chạy đã có" table.
 
 ### 2. Running the Script Manually
 
