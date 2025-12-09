@@ -271,7 +271,7 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
                     value="script.py" if "script.py" in get_python_scripts() else None,
                     allow_custom_value=True
                 )
-                refresh_scripts_btn = gr.Button("🔄", size="sm", scale=0)
+                refresh_scripts_btn = gr.Button("🔄 Làm mới danh sách file script", size="md", scale=1)
             
             with gr.Row():
                 manual_date_input = gr.Textbox(
@@ -281,8 +281,8 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
                 )
 
             with gr.Row():
-                run_full_button = gr.Button("🚀 Chạy toàn bộ quy trình")
-                run_skip_email_button = gr.Button("⏩ Chạy chỉ xử lý file")
+                run_full_button = gr.Button("🚀 Chạy với file script đã chọn")
+                run_skip_email_button = gr.Button("⏩ Chạy chỉ xử lý file (Bỏ qua download email attachment)")
             manual_run_status = gr.Textbox(label="Trạng thái", interactive=False)
 
             refresh_scripts_btn.click(
@@ -304,7 +304,7 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
                             value="script.py" if "script.py" in get_python_scripts() else None,
                             allow_custom_value=True
                         )
-                        refresh_add_script_btn = gr.Button("🔄", size="sm", scale=0)
+                        refresh_add_script_btn = gr.Button("🔄 Làm mới danh sách file script", size="md", scale=1)
 
                     with gr.Row():
                         add_freq = gr.Radio(["Hàng ngày", "Hàng tuần"], label="Tần suất", value="Hàng ngày")
