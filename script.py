@@ -345,7 +345,7 @@ def main():
         df_location = pd.read_csv(site_location_path, usecols=['Site_ID', 'Long', 'Lat'])
         
         # Add Date column (based on process_date)
-        df_site_data['Date'] = process_date.strftime('%Y-%m-%d')
+        df_site_data['Date'] = pd.to_datetime(process_date.strftime('%Y-%m-%d'))
         
         # Lookup Long and Lat
         location_dict_long = dict(zip(df_location['Site_ID'], df_location['Long']))
