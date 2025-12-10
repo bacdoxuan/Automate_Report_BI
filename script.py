@@ -339,24 +339,26 @@ def main():
         print(f"✅ Site Data: {len(df_site_data):,} sites\n")
         
         # 13. Load SiteLocation and add location data
-        current_step = "Adding Location Data"
-        print("📍 Adding location data...")
-        site_location_path = Path(__file__).parent / "SiteLocation.csv"
-        df_location = pd.read_csv(site_location_path, usecols=['Site_ID', 'Long', 'Lat'])
+        # Skip this step - Long Lat will be added in another place
+
+        # current_step = "Adding Location Data"
+        # print("📍 Adding location data...")
+        # site_location_path = Path(__file__).parent / "SiteLocation.csv"
+        # df_location = pd.read_csv(site_location_path, usecols=['Site_ID', 'Long', 'Lat'])
         
         # Add Date column (based on process_date)
         df_site_data['Date'] = pd.to_datetime(process_date.strftime('%Y-%m-%d'))
         
         # Lookup Long and Lat
-        location_dict_long = dict(zip(df_location['Site_ID'], df_location['Long']))
-        location_dict_lat = dict(zip(df_location['Site_ID'], df_location['Lat']))
+        # location_dict_long = dict(zip(df_location['Site_ID'], df_location['Long']))
+        # location_dict_lat = dict(zip(df_location['Site_ID'], df_location['Lat']))
         
-        df_site_data['Long'] = df_site_data['SiteID'].map(location_dict_long).fillna(0)
-        df_site_data['Lat'] = df_site_data['SiteID'].map(location_dict_lat).fillna(0)
+        # df_site_data['Long'] = df_site_data['SiteID'].map(location_dict_long).fillna(0)
+        # df_site_data['Lat'] = df_site_data['SiteID'].map(location_dict_lat).fillna(0)
         
         # Reorder columns
         arranged_columns = [
-            'Date', 'SiteID', 'Long', 'Lat',
+            'Date', 'SiteID',
             '3G_User', '3G_Speed', '3G_Voice', '3G_Data',
             '4G_User', '4G_Speed', '4G_Voice', '4G_Data'
         ]
@@ -376,16 +378,16 @@ def main():
         }
         df_site_data = df_site_data.rename(columns=final_column_names)
 
-        print(f"✅ Added location data\n")
+        # print(f"✅ Added location data\n")
         
         # 13.5 Drop rows with Long = 0 or Lat = 0
-        current_step = "Filtering Invalid Coordinates"
-        print("🗺️ Filtering out sites with invalid coordinates...")
-        initial_count = len(df_site_data)
-        df_site_data = df_site_data[(df_site_data['Long'] != 0) & (df_site_data['Lat'] != 0)]
-        filtered_count = len(df_site_data)
-        dropped_count = initial_count - filtered_count
-        print(f"✅ Filtered out {dropped_count:,} sites with Long=0 or Lat=0")
+        # current_step = "Filtering Invalid Coordinates"
+        # print("🗺️ Filtering out sites with invalid coordinates...")
+        # initial_count = len(df_site_data)
+        # df_site_data = df_site_data[(df_site_data['Long'] != 0) & (df_site_data['Lat'] != 0)]
+        # filtered_count = len(df_site_data)
+        # dropped_count = initial_count - filtered_count
+        # print(f"✅ Filtered out {dropped_count:,} sites with Long=0 or Lat=0")
         
         # 14. Save to Aggregate.xlsx
         current_step = "Saving to Excel"
