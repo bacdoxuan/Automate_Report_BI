@@ -1,5 +1,4 @@
 
-
 import os
 import sys
 import logging
@@ -25,7 +24,7 @@ load_dotenv()
 # =================================================================
 
 # Thư mục tìm kiếm (tên chính xác trong Exchange)
-FOLDER_NAME = "Myself"
+FOLDER_NAME = "inbox"
 FOLDER_NAME_Z = "inbox"
 
 # Email người gửi (None = không lọc theo người gửi)
@@ -80,7 +79,7 @@ logger = logging.getLogger(__name__)
 # ========== CẤU HÌNH LOGGING & EMAIL =============================
 # =================================================================
 
-# Email nhận báo cáo kết quả
+# Email nhận báo cáo kết quả và log chạy script chi tiết
 RESULT_RECEIVER_LIST = [
     "bac.dx@vietnamobile.com.vn",
     # "thanh.tv@vietnamobile.com.vn",
