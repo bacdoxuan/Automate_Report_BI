@@ -55,6 +55,10 @@ LIST_OF_EMAILS_Z = [
 # Thư mục lưu file tải về
 DOWNLOAD_FOLDER = "downloads"
 
+# Thư mục sao chép file kết quả (để trống = không sao chép)
+# Ví dụ: PATH_TO_COPY = r"D:\Reports\Archive"
+PATH_TO_COPY = r"D:/Project/Automate PowerBI - Display Site Information/Backup_Aggregate/"
+
 # Chỉ download các định dạng file này (để trống = tất cả file)
 # Ví dụ: [".xlsx", ".pdf", ".csv"]
 ALLOWED_EXTENSIONS = []
@@ -421,6 +425,30 @@ def main():
         # Save to Excel
         df_combined.to_excel(aggregate_file, index=False)
         print(f"✅ Saved to {aggregate_file.name}\n")
+        
+        # 14.5 Copy to external folder
+        if PATH_TO_COPY:
+            current_step = "Copying to external folder"
+            try:
+                print(f"📂 Copying to: {PATH_TO_COPY}")
+                destination_dir = Path(PATH_TO_COPY)
+                
+                if not destination_dir.exists():
+                    print(f"   Creating directory: {PATH_TO_COPY}")
+                    destination_dir.mkdir(parents=True, exist_ok=True)
+                
+                destination_file = destination_dir / aggregate_file.name
+                file_existed = destination_file.exists()
+                
+                shutil.copy2(aggregate_file, destination_file)
+                
+                if file_existed:
+                    print(f"🔄 Đã ghi đè file tại: {destination_file}")
+                else:
+                    print(f"✅ Copy thành công file tới: {destination_file}")
+            except Exception as e:
+                print(f"⚠️ Failed to copy file: {e}")
+                # Don't stop the process, just log warning
         
         print("="*60)
         print("🎉 DATA PROCESSING COMPLETED!")
