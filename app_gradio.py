@@ -1,3 +1,12 @@
+# =============================================================================
+# app_gradio.py
+#
+# Gradio-based web UI for the Automated BI Report Generator.
+# Features: manual script execution, job scheduling with APScheduler,
+# schedule management (CRUD), execution history tracking, and log viewing.
+# Integrates with scheduler_db.py for persistent schedule storage in SQLite.
+# =============================================================================
+
 import gradio as gr
 import pandas as pd
 import os
@@ -22,6 +31,7 @@ scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
 
 # --- Core Functions ---
 def get_log_files():
+    """Retrieve list of log files from Log directory, sorted by modification time (newest first)."""
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
     log_files = glob.glob(os.path.join(LOG_DIR, "*.txt"))
@@ -29,14 +39,16 @@ def get_log_files():
     return [os.path.basename(f) for f in log_files]
 
 def get_python_scripts():
+    """Get list of Python scripts in current directory, prioritizing script.py at the top."""
     files = glob.glob("*.py")
-    # Ưu tiên script.py lên đầu
+    # Prioritize script.py at the beginning
     if "script.py" in files:
         files.remove("script.py")
         files.insert(0, "script.py")
     return files
 
 def view_log_file(log_filename):
+    """Read and return contents of a log file. Returns error message if file cannot be read."""
     if not log_filename:
         return "Vui lòng chọn một file log để xem."
     log_path = os.path.join(LOG_DIR, log_filename)
@@ -47,7 +59,14 @@ def view_log_file(log_filename):
         return f"Lỗi khi đọc file: {e}"
 
 def run_script_manual(skip_email, script_path="script.py", process_date=None):
-    """Starts the script for manual execution and returns immediate UI feedback."""
+    """Execute a Python script manually via subprocess and return immediate UI feedback.
+    Args:
+        skip_email (bool): If True, append --skip-email flag to skip email download.
+        script_path (str): Path to the Python script to run (default: script.py).
+        process_date (str): Optional date in YYYY-MM-DD format for specific date processing.
+    Returns:
+        str: Status message confirming task start or error details.
+    """
     if not script_path:
         script_path = "script.py"
     
@@ -73,11 +92,14 @@ def run_script_manual(skip_email, script_path="script.py", process_date=None):
         return f"Lỗi khi bắt đầu tác vụ: {e}"
 
 def run_scheduled_job(schedule_id: int, skip_email: bool):
+    """Execute a scheduled job script in a background thread, log outcome to database.
+    Retrieves script path from schedule info, runs via subprocess, and records
+    execution status (OK/NOK) and details in run_history table.
+    Args:
+        schedule_id (int): ID of the schedule in the database.
+        skip_email (bool): If True, append --skip-email flag.
     """
-    Runs the script for a scheduled job, waits for it to complete, and logs the outcome.
-    This function is executed by the APScheduler in a background thread.
-    """
-    # Lấy thông tin lịch để biết file script cần chạy
+    # Retrieve schedule info to determine which script to run
     sched_info = scheduler_db.get_schedule(schedule_id)
     script_path = sched_info.get('script_path', 'script.py') if sched_info else "script.py"
 
@@ -106,7 +128,11 @@ def run_scheduled_job(schedule_id: int, skip_email: bool):
 
 # --- Scheduler and DB Interaction Logic ---
 def add_job_to_scheduler(schedule: dict):
-    """Adds a single job from a schedule dictionary to the APScheduler."""
+    """Add a schedule from database to APScheduler using CronTrigger.
+    Creates a cron job that will execute run_scheduled_job() at specified time/frequency.
+    Args:
+        schedule (dict): Schedule dict containing id, run_time, frequency, day_of_week, skip_email.
+    """
     job_id = f"db_job_{schedule['id']}"
     try:
         hour, minute = map(int, schedule['run_time'].split(':'))
@@ -126,11 +152,18 @@ def add_job_to_scheduler(schedule: dict):
         print(f"Error adding job {job_id} to scheduler: {e}")
 
 def remove_job_from_scheduler(schedule_id: int):
+    """Remove a scheduled job from APScheduler by schedule ID.
+    Args:
+        schedule_id (int): The database schedule ID.
+    """
     job_id = f"db_job_{schedule_id}"
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
 
 def sync_scheduler_from_db():
+    """Reload all active schedules from database into APScheduler.
+    Clears existing jobs and recreates them from database records.
+    """
     print("Syncing scheduler from database...")
     scheduler.remove_all_jobs()
     schedules = scheduler_db.get_all_schedules()
@@ -140,6 +173,9 @@ def sync_scheduler_from_db():
     print(f"Scheduler synced. {len(scheduler.get_jobs())} jobs are active.")
 
 def load_schedules_as_dataframe():
+    """Convert schedules from database into a pandas DataFrame for UI display.
+    Returns empty DataFrame with columns if no schedules exist.
+    """
     schedules = scheduler_db.get_all_schedules()
     if not schedules:
         return pd.DataFrame(columns=["ID", "Tên Lịch", "Script", "Tần Suất", "Ngày/Giờ Chạy", "Bỏ qua Email", "Trạng Thái"])
@@ -158,10 +194,17 @@ def load_schedules_as_dataframe():
     return pd.DataFrame(df_data)
 
 def get_schedule_choices():
+    """Get list of schedule names with IDs for Gradio dropdown component.
+    Returns:
+        List[str]: List of formatted strings: 'Schedule Name (ID: 123)'.
+    """
     schedules = scheduler_db.get_all_schedules()
     return [f"{s['job_name']} (ID: {s['id']})" for s in schedules]
 
 def handle_add_schedule(name, freq, day, time, skip, active, script_path):
+    """Add a new schedule to the database and optionally add to scheduler.
+    Returns status message, updated DataFrame, and updated dropdown choices.
+    """
     if not name or not time:
         return "Tên lịch và thời gian chạy không được để trống.", load_schedules_as_dataframe(), gr.Dropdown(choices=get_schedule_choices())
     try:
@@ -185,7 +228,7 @@ def handle_add_schedule(name, freq, day, time, skip, active, script_path):
 
 # --- Delete Confirmation Handlers ---
 def prompt_delete(schedule_choice: str) -> List[Any]:
-    """Shows the delete confirmation UI."""
+    """Show delete confirmation dialog. Returns updated visibility states for UI groups and confirmation message."""
     if not schedule_choice:
         return [gr.update(), gr.update(), gr.update(value="Vui lòng chọn một lịch để xóa.")]
     
@@ -196,7 +239,7 @@ def prompt_delete(schedule_choice: str) -> List[Any]:
     ]
 
 def cancel_delete() -> List[Any]:
-    """Hides the delete confirmation UI."""
+    """Hide delete confirmation dialog and return UI to management view."""
     return [
         gr.update(visible=True),  # Show management buttons
         gr.update(visible=False), # Hide confirmation buttons
@@ -204,7 +247,9 @@ def cancel_delete() -> List[Any]:
     ]
 
 def handle_delete_schedule(schedule_choice: str) -> Tuple[Any, ...]:
-    """Performs the deletion and resets the UI."""
+    """Delete schedule from database and APScheduler, return updated UI components.
+    Parses schedule ID from choice string and removes from both database and scheduler.
+    """
     if not schedule_choice:
         msg = "Lỗi: Không có lịch nào được chọn để xóa."
     else:
@@ -225,6 +270,13 @@ def handle_delete_schedule(schedule_choice: str) -> Tuple[Any, ...]:
     )
 
 def handle_toggle_status(schedule_choice: str, new_status: bool):
+    """Activate or deactivate a schedule and sync with APScheduler.
+    Args:
+        schedule_choice (str): Formatted string 'Schedule Name (ID: 123)'.
+        new_status (bool): True to activate, False to deactivate.
+    Returns:
+        Tuple of status message and updated schedules DataFrame.
+    """
     if not schedule_choice:
         return "Vui lòng chọn một lịch để thay đổi.", load_schedules_as_dataframe()
     schedule_id = int(schedule_choice.split("ID: ")[1].strip(")"))
@@ -239,6 +291,9 @@ def handle_toggle_status(schedule_choice: str, new_status: bool):
     return msg, load_schedules_as_dataframe()
 
 def handle_view_history(schedule_choice: str):
+    """Retrieve and display execution history for a schedule.
+    Returns status message and DataFrame of run history entries.
+    """
     if not schedule_choice:
         return "Vui lòng chọn một lịch để xem lịch sử.", gr.DataFrame(visible=False)
     

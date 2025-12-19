@@ -1,4 +1,13 @@
 
+# =============================================================================
+# script.py
+#
+# Main orchestrator for the Automated BI Report Generator ETL pipeline.
+# Coordinates: Exchange connection, email downloads, ZIP extraction, data
+# processing (3G/4G Ericsson/ZTE), aggregation, Excel export, and notifications.
+# Supports --skip-email flag to process local files, --process-date for specific dates.
+# =============================================================================
+
 import os
 import sys
 import logging
@@ -97,6 +106,7 @@ RESULT_EMAIL_SUBJECT = "[Automate Job Result]"
 # =================================================================
 
 class Logger(object):
+    """Redirect stdout and stderr to both console and log file for full execution traceability."""
     def __init__(self, filename):
         self.terminal = sys.stdout
         self.log = open(filename, "a", encoding="utf-8")
@@ -111,7 +121,12 @@ class Logger(object):
         self.log.flush()
 
 def setup_logging(process_date):
-    """Thiết lập logging vào file"""
+    """Set up logging to file named by processing date. Redirects stdout/stderr to log file.
+    Args:
+        process_date (datetime): The date being processed.
+    Returns:
+        str: Path to the created log file.
+    """
     log_dir = "Log"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -131,7 +146,11 @@ def setup_logging(process_date):
 # =================================================================
 
 def main():
-    # Thêm parser cho command-line arguments
+    """Main entry point orchestrating the complete ETL workflow.
+    Parses arguments, sets up logging, downloads/extracts files, processes data,
+    saves results to Excel, and sends email notifications.
+    """
+    # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Automated BI Report Generator.")
     parser.add_argument(
         "-s", "--skip-email",
