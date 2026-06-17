@@ -9,11 +9,20 @@ This is a Python automation tool that downloads PowerBI performance reports from
 ## Common Commands
 
 ```bash
+# Install dependencies
+pip install -r requirements.txt
+
 # Run the main automation script
 python script.py
 
 # Test Exchange server connection (without downloading)
 python testconnection.py
+
+# Download emails only (without data processing)
+python downloademailonly.py
+
+# Launch web UI with scheduling dashboard
+python app_gradio.py
 ```
 
 ## Architecture Overview
@@ -30,7 +39,7 @@ The application uses a two-pass strategy to collect reports from different email
 2. **Pass 2 (Shared Mailbox)**: Downloads reports from a shared performance reporting mailbox
    - Folder: "inbox" (in shared account)
    - Sender: vnm.performance.reporting@vietnamobile.com.vn
-   - Subjects: [EXTERNAL]Task name:* (covers 3G/4G ZTE traffic variants)
+   - Subjects: [EXTERNAL]Task name:\* (covers 3G/4G ZTE traffic variants)
 
 ### Core Components
 
@@ -54,9 +63,32 @@ The application uses a two-pass strategy to collect reports from different email
 
 - **`testconnection.py`** - Standalone utility for validating Exchange connectivity
 
+- **`notification.py`** - Email notification system:
+  - `Notifier` class for sending success/failure alerts
+  - Sends automated emails with execution logs attached
+  - Integrated with `script.py` for error handling and result reporting
+
+- **`downloademailonly.py`** - Alternative script for email-only operations:
+  - Downloads emails without running data processing
+  - Supports the same two-pass email retrieval strategy
+  - Useful for testing or manual report collection
+
+- **`app_gradio.py`** - Web UI dashboard and scheduler:
+  - Gradio-based interface for managing automation tasks
+  - `BackgroundScheduler` using APScheduler for job scheduling
+  - Displays log files and execution history
+  - Integrates with `scheduler_db.py` for persisting schedule configurations
+
+- **`scheduler_db.py`** - SQLite database module:
+  - `init_db()` - Initialize database tables (schedules, logs)
+  - Manages job schedules with frequency, day/time, and activity status
+  - Tracks execution history and logs for all scheduled runs
+  - Supports migrations for schema updates
+
 ### Data Processing Modules
 
 All processing modules follow a standardized 4-step workflow:
+
 1. **Import** - Load data from Excel/CSV files
 2. **Transform** - Calculate metrics (max users, traffic sums, speeds)
 3. **Merge** - Combine multiple sheets/files into single DataFrame
@@ -128,6 +160,7 @@ All processing modules follow a standardized 4-step workflow:
 #### Common Processing Steps
 
 All processors implement these methods:
+
 - `standardize_columns()` - Normalize column names to common format (3G/4G_Cell_ID, User, Speed, Voice, Data)
 - `clean_data()` - Remove rows where Data column = 0
 - `aggregate_by_site()` - Extract SiteID from Cell_ID (characters 1-6) and aggregate:
@@ -139,26 +172,34 @@ All processors implement these methods:
 
 ### Data Flow
 
-```
+**Full Processing Pipeline (`script.py`):**
+
+```bash
 script.py (config & orchestration)
-  └─> exchange_lib functions
-        ├─> get_exchange_account() → Exchange connection
-        ├─> find_subfolder() → Locate target folder
-        └─> find_and_download_emails() → Search & download
-              └─> downloads/ (XLSX + ZIP files)
-                    └─> extract_zippy.extract_all_zips() → Extract ZIPs
-                          └─> downloads/ (XLSX + CSV files)
-                                └─> Data Processing Modules
-                                      ├─> processing_3G_Ericsson.Ericsson3GProcessor
-                                      ├─> processing_3G_ZTE.ZTE3GProcessor
-                                      ├─> processing_4G_ZTE.ZTE4GProcessor
-                                      └─> processing_4G_Ericsson (TBD)
-                                            └─> Processed DataFrames for PowerBI
+  ├─> exchange_lib functions
+  │     ├─> get_exchange_account() → Exchange connection
+  │     ├─> find_subfolder() → Locate target folder
+  │     └─> find_and_download_emails() → Search & download
+  ├─> extract_zippy.extract_all_zips() → Extract downloaded ZIPs
+  ├─> Data Processing Modules
+  │     ├─> processing_3G_Ericsson.Ericsson3GProcessor
+  │     ├─> processing_3G_ZTE.ZTE3GProcessor
+  │     ├─> processing_4G_ZTE.ZTE4GProcessor
+  │     └─> processing_4G_Ericsson.Ericsson4GProcessor
+  └─> notification.Notifier.send_email() → Success/failure alerts
 ```
+
+**Alternative Workflows:**
+
+- `downloademailonly.py` - Downloads only (skips data processing)
+- `app_gradio.py` - Web UI with scheduling via `scheduler_db.py`
+  - Uses `BackgroundScheduler` to trigger `script.py` at configured intervals
+  - Stores job configurations and execution logs in SQLite database
 
 ## Configuration
 
 Environment variables (stored in `.env`, never committed):
+
 - `EMAIL_ADDRESS` - User's Exchange email address
 - `EMAIL_PASSWORD` - User's password
 - `EXCHANGE_SERVER` - Exchange server hostname
@@ -166,6 +207,7 @@ Environment variables (stored in `.env`, never committed):
 - `EXCHANGE_USERNAME` - Domain username for NTLM
 
 Additional configuration in `script.py`:
+
 - `SEARCH_SUBJECTS` - List of email subject keywords to filter on
 - `SHARED_EMAIL_ADDRESS` - Shared mailbox email for second pass
 - `SHARED_SENDER_EMAIL` - Email address to filter in shared mailbox
@@ -173,12 +215,39 @@ Additional configuration in `script.py`:
 - `START_DATE` and `END_DATE` - Email search date range
 - `DOWNLOAD_FOLDER` - Local directory for downloaded files
 
+## Setup & Installation
+
+1. **Install Python dependencies:**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Configure environment variables** in `.env` file (see Configuration section)
+
+3. **Initialize scheduler database** (only needed for `app_gradio.py`):
+   - Database is auto-initialized on first run of `app_gradio.py`
+   - SQLite database stored in `schedules.db`
+
+4. **Run the automation:**
+   - **Command-line only:** `python script.py`
+   - **Email download only:** `python downloademailonly.py`
+   - **Web dashboard:** `python app_gradio.py` (then open browser to localhost:7860)
+
 ## Key Dependencies
+
+**Required for all functionality:**
 
 - `exchangelib` - Microsoft Exchange Web Services (EWS) client
 - `python-dotenv` - Environment variable management
 - `pandas` - Data processing and transformation
-- Standard library modules: `os`, `logging`, `shutil`, `datetime`, `zipfile`, `pathlib`, `glob`
+- `openpyxl` - Excel file reading and writing
+- Standard library modules: `os`, `logging`, `shutil`, `datetime`, `zipfile`, `pathlib`, `glob`, `sqlite3`
+
+**Optional (required only for web UI and scheduling):**
+
+- `gradio` - Web interface framework (required for `app_gradio.py`)
+- `apscheduler` - Job scheduling library (required for `app_gradio.py`)
 
 ## Important Development Notes
 
@@ -227,7 +296,7 @@ Console output includes emoji indicators (✅ for success, ❌ for errors, ℹ�
 4. **Download Pass 2** - Shared mailbox (8 ZIP files: 3G/4G ZTE Traffic + User TP for EMS1/EMS2)
 5. **Extract** all ZIP files automatically (8 CSV files extracted)
 6. **Process** data files:
-   - **3G Ericsson:** 
+   - **3G Ericsson:**
      - Import 2 XLSX files (4 sheets total)
      - Transform: max users, busy hour, traffic sums, speed lookup
      - Standardize → Clean → Aggregate
@@ -251,3 +320,27 @@ Console output includes emoji indicators (✅ for success, ❌ for errors, ℹ�
      - Output: `4G_Ericsson_Site_Data` (SiteID + aggregated metrics)
 7. **Result** - Site-level DataFrames ready for PowerBI import with standardized schema:
    - `SiteID, User, Speed, Voice, Data` (consistent across all 4 processors)
+
+## Entry Points and Usage Scenarios
+
+### Main Entry Points
+
+1. **`script.py`** - Full automation pipeline
+   - **When to use:** Scheduled/automated execution in production
+   - **Does:** Download emails → Extract ZIPs → Process data → Send notifications
+   - **Output:** Site-level DataFrames (ready for PowerBI), execution log, notification email
+
+2. **`downloademailonly.py`** - Email retrieval only
+   - **When to use:** Manual report collection, troubleshooting email downloads, testing connectivity
+   - **Does:** Download emails → Extract ZIPs (no data processing)
+   - **Output:** Raw downloaded files in `downloads/` folder
+
+3. **`app_gradio.py`** - Web UI with scheduler
+   - **When to use:** Interactive management, scheduling multiple runs, monitoring execution history
+   - **Does:** Web interface for configuring job schedules, viewing logs, manually triggering runs
+   - **Output:** Browser interface at `http://localhost:7860`
+
+4. **`testconnection.py`** - Connection validation
+   - **When to use:** Debugging Exchange connectivity issues
+   - **Does:** Test connection to Exchange server with current `.env` credentials
+   - **Output:** Connection success/failure message
