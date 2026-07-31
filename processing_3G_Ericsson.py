@@ -25,6 +25,18 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 
+def safe_idxmax_axis1(df: pd.DataFrame) -> pd.Series:
+    """Row-wise idxmax compatible with pandas 2.x and 3.x.
+    pandas 3.0 raises ValueError on all-NA rows; return NA for those rows instead.
+    """
+    numeric = df.apply(pd.to_numeric, errors="coerce")
+    result = pd.Series(pd.NA, index=numeric.index, dtype=object)
+    valid = numeric.notna().any(axis=1)
+    if valid.any():
+        result.loc[valid] = numeric.loc[valid].idxmax(axis=1)
+    return result
+
+
 class Ericsson3GProcessor:
     """Handle 3G Ericsson data processing for PowerBI reports"""
     
@@ -190,11 +202,14 @@ class Ericsson3GProcessor:
         # Get hour columns (0 to 23)
         hour_columns = [col for col in df.columns if col not in ['Date', 'RNC Id', 'RBS Id', 'UCell Id']]
         
+        hour_data = df[hour_columns].apply(pd.to_numeric, errors="coerce")
+
         # Calculate Max_user: max value across 24 hour columns
-        df['Max_user'] = df[hour_columns].max(axis=1)
+        df['Max_user'] = hour_data.max(axis=1)
         
         # Calculate Max_hour_index: column index (0-23) where max occurs
-        df['Max_hour_index'] = df[hour_columns].idxmax(axis=1)
+        # safe_idxmax: pandas 3.0 raises on all-NA rows
+        df['Max_hour_index'] = safe_idxmax_axis1(hour_data)
         
         # Create result DataFrame with only required columns
         result = df[['UCell Id', 'Max_user', 'Max_hour_index']].copy()
@@ -291,12 +306,14 @@ class Ericsson3GProcessor:
             # Get the max_hour_index from HS_User
             if ucell_id in hs_lookup:
                 hour_index = hs_lookup[ucell_id]
+                if pd.isna(hour_index):
+                    return pd.NA
                 # Convert to string to match column name
                 hour_col = str(hour_index)
                 
                 # Return the value at that hour column
                 if hour_col in row.index:
-                    return row[hour_col]
+                    return pd.to_numeric(row[hour_col], errors="coerce")
             
             # Return NaN if not found
             return pd.NA

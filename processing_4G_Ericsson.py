@@ -24,6 +24,18 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 
+def safe_idxmax_axis1(df: pd.DataFrame) -> pd.Series:
+    """Row-wise idxmax compatible with pandas 2.x and 3.x.
+    pandas 3.0 raises ValueError on all-NA rows; return NA for those rows instead.
+    """
+    numeric = df.apply(pd.to_numeric, errors="coerce")
+    result = pd.Series(pd.NA, index=numeric.index, dtype=object)
+    valid = numeric.notna().any(axis=1)
+    if valid.any():
+        result.loc[valid] = numeric.loc[valid].idxmax(axis=1)
+    return result
+
+
 class Ericsson4GProcessor:
     """Handle 4G Ericsson data processing for PowerBI reports"""
     
@@ -107,11 +119,15 @@ class Ericsson4GProcessor:
         if not hour_columns:
             raise ValueError("No hour columns (0-23) found in UE_Active_DL sheet")
         
+        # Coerce hour columns to numeric (Excel may yield object/mixed types)
+        hour_data = df[hour_columns].apply(pd.to_numeric, errors="coerce")
+
         # Calculate max_UE_Active: max value across 24 hour columns
-        df['max_UE_Active'] = df[hour_columns].max(axis=1)
+        df['max_UE_Active'] = hour_data.max(axis=1)
         
         # Calculate index_max_UE_Active: column index (0-23) where max occurs
-        df['index_max_UE_Active'] = df[hour_columns].idxmax(axis=1)
+        # Use safe_idxmax for pandas 3.0 (all-NA rows no longer raise)
+        df['index_max_UE_Active'] = safe_idxmax_axis1(hour_data)
         
         # Keep only required columns
         result = df[['Cell ID', 'max_UE_Active', 'index_max_UE_Active']].copy()
@@ -157,11 +173,14 @@ class Ericsson4GProcessor:
             # Get the index_max_UE_Active from UE_Active_DL
             if cell_id in ue_active_lookup:
                 hour_index = ue_active_lookup[cell_id]
+                if pd.isna(hour_index):
+                    return pd.NA
                 hour_col = str(hour_index)
                 
                 # Return the value at that hour column
                 if hour_col in row.index:
-                    return row[hour_col]
+                    val = row[hour_col]
+                    return pd.to_numeric(val, errors="coerce")
             
             # Return NaN if not found
             return pd.NA
