@@ -2,9 +2,11 @@
 import os
 import sys
 import logging
+import math
+import numpy as np
 import pandas as pd
 from notification import Notifier
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from dotenv import load_dotenv
 from exchange_lib import get_exchange_account, find_and_download_emails
@@ -13,6 +15,7 @@ from processing_3G_Ericsson import Ericsson3GProcessor
 from processing_3G_ZTE import ZTE3GProcessor
 from processing_4G_Ericsson import Ericsson4GProcessor
 from processing_4G_ZTE import ZTE4GProcessor
+from openpyxl import Workbook
 import shutil
 import argparse
 
@@ -125,6 +128,87 @@ def setup_logging(process_date):
     sys.stderr = sys.stdout
     
     return log_path
+
+
+def _excel_cell_value(value):
+    """Normalize Python/pandas/numpy values for openpyxl write_only cells."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (pd.Timestamp, np.datetime64)):
+        ts = pd.Timestamp(value)
+        if pd.isna(ts):
+            return None
+        return ts.to_pydatetime().replace(tzinfo=None)
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        f = float(value)
+        return None if math.isnan(f) or math.isinf(f) else f
+    if isinstance(value, (np.bool_,)):
+        return bool(value)
+    return value
+
+
+def write_dataframe_to_excel_chunked(
+    df: pd.DataFrame,
+    file_path,
+    chunk_size: int = 10000,
+    sheet_name: str = "Sheet1",
+):
+    """Ghi DataFrame ra .xlsx theo chunk bằng openpyxl write_only (tiết kiệm RAM).
+
+    ~180k dòng (30 ngày × ~6k) ghi dần thay vì build workbook full trong memory
+    như pandas.DataFrame.to_excel().
+    Ghi file tạm rồi replace atomic để tránh hỏng file gốc nếu bị gián đoạn.
+    """
+    file_path = Path(file_path)
+    tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+
+    total_rows = len(df)
+    columns = list(df.columns)
+    n_chunks = max(1, math.ceil(total_rows / chunk_size)) if total_rows else 1
+
+    print(
+        f"   💾 Chunked Excel write: {total_rows:,} rows, "
+        f"chunk_size={chunk_size:,}, chunks={n_chunks}"
+    )
+
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet(title=sheet_name)
+    ws.append(columns)
+
+    if total_rows > 0:
+        # values ndarray + column-wise convert is faster than iterrows
+        values = df.to_numpy(dtype=object, copy=False)
+        for chunk_idx, start in enumerate(range(0, total_rows, chunk_size), start=1):
+            end = min(start + chunk_size, total_rows)
+            block = values[start:end]
+            for row in block:
+                ws.append([_excel_cell_value(v) for v in row])
+            print(f"   … wrote rows {start + 1:,}-{end:,} / {total_rows:,} (chunk {chunk_idx}/{n_chunks})")
+
+    try:
+        wb.save(tmp_path)
+        # Atomic replace on Windows if target exists
+        os.replace(tmp_path, file_path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+    print(f"   ✅ Chunked write done → {file_path}")
+
 
 # =================================================================
 # ========== MAIN SCRIPT ==========================================
@@ -422,8 +506,12 @@ def main():
             print(f"✅ Created new file")
             print(f"📊 Total records: {len(df_combined):,}")
         
-        # Save to Excel
-        df_combined.to_excel(aggregate_file, index=False)
+        # Save to Excel (chunked write_only — ổn định hơn với ~180k dòng)
+        write_dataframe_to_excel_chunked(
+            df_combined,
+            aggregate_file,
+            chunk_size=10000,
+        )
         print(f"✅ Saved to {aggregate_file.name}\n")
         
         # 14.5 Copy to external folder
