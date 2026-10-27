@@ -21,8 +21,13 @@ python script.py --skip-email
 python script.py --process-date 2026-10-25
 python script.py --skip-email --process-date 2026-10-25
 
+# Backfill several dates (comma-separated, run sequentially; failing dates are
+# bypassed and the loop continues). Exit code 0 = all OK, 1 = some date failed,
+# 2 = invalid --process-date.
+python script.py --process-date 2026-10-01,2026-10-02,2026-10-03
+
 # Download + extract only (no data processing)
-python downloademailonly.py [--skip-email] [--process-date YYYY-MM-DD]
+python downloademailonly.py [--skip-email] [--process-date YYYY-MM-DD[,YYYY-MM-DD,...]]
 
 # Validate .env / Exchange connectivity
 python testconnection.py
@@ -60,15 +65,17 @@ app_gradio.py ──subprocess──> script.py ──> exchange_lib.py (EWS/NTL
 
 `script.py` is the orchestrator; all tunable constants live in its top "CẤU HÌNH" block. It:
 
-1. Parses `--skip-email` / `--process-date`, then derives `process_date` (default yesterday) and `email_search_date = process_date + 1 day`.
-2. Connects with `get_exchange_account()` (EWS `NTLM`, `DELEGATE`, `autodiscover=False`).
+1. Parses `--skip-email` / `--process-date` via `cli_utils` (`build_arg_parser`, `parse_date_list`), then derives `process_date` (default yesterday) and `email_search_date = process_date + 1 day`. `--process-date` accepts a comma-separated list; `main()` runs dates sequentially and bypasses a failing date.
+2. Connects with `get_exchange_account()` (EWS `NTLM`, `DELEGATE`, `autodiscover=False`) **once**, before the date loop.
 3. Clears/recreates `downloads/`.
 4. Downloads **Pass 1 (Ericsson)**: folder `inbox`, sender `SENDER_EMAIL`, subjects in `LIST_OF_EMAILS` (4 XLSX reports).
 5. Downloads **Pass 2 (ZTE)**: folder `inbox`, sender `SENDER_EMAIL_Z`, subjects in `LIST_OF_EMAILS_Z` (8 `[EXTERNAL]Task name:...` reports delivered as ZIPs).
 6. Extracts every ZIP in `downloads/`.
 7. Runs the four processors, concatenates Ericsson + ZTE per technology, outer-merges 3G and 4G on `SiteID`, fills missing with 0, adds `Date`, renames to the final PowerBI schema.
-8. Appends to `Aggregate.xlsx`, keeps only the last 30 days, sorts by `Date`, and writes atomically.
-9. Copies to `PATH_TO_COPY` (if set) and emails success/failure via `Notifier`.
+8. `merge_into_aggregate()` deletes rows for that exact `process_date` (idempotent re-runs), appends, keeps the last `RETENTION_DAYS` (30) days compared by **normalized date**, sorts by `Date`, writes atomically.
+9. Copies to `PATH_TO_COPY` (if set) and emails success/failure via `Notifier`; mail errors are logged and never change the run result.
+
+Exit codes: `0` all dates OK, `1` a date failed or Exchange connect failed, `2` invalid `--process-date`. `main()` is called as `sys.exit(main())`; `app_gradio.py` maps these codes to `OK` / `NOK`.
 
 Both passes query the same `inbox`; they are distinguished only by sender and exact subject match. Email search is by `datetime_received` within one local day (`Asia/Ho_Chi_Minh`) and `subject` exact-equals the configured string — subject changes in Exchange require updating the lists in `script.py`.
 
@@ -78,7 +85,7 @@ Both passes query the same `inbox`; they are distinguished only by sender and ex
 
 `.env` keys (never committed): `EMAIL_ADDRESS`, `EMAIL_PASSWORD`, `EXCHANGE_SERVER`, `EXCHANGE_DOMAIN`, `EXCHANGE_USERNAME`. The NTLM username is sent as `DOMAIN\USERNAME`.
 
-Constants in `script.py` that are commonly edited: `LIST_OF_EMAILS` / `LIST_OF_EMAILS_Z`, `SENDER_EMAIL` / `SENDER_EMAIL_Z`, `FOLDER_NAME` / `FOLDER_NAME_Z`, `DOWNLOAD_FOLDER`, `PATH_TO_COPY`, `ALLOWED_EXTENSIONS`, `DAYS_TO_SEARCH`, `LOG_LEVEL`, `RESULT_RECEIVER_LIST`, `RESULT_EMAIL_SUBJECT`.
+Constants in `script.py` that are commonly edited: `LIST_OF_EMAILS` / `LIST_OF_EMAILS_Z`, `SENDER_EMAIL` / `SENDER_EMAIL_Z`, `FOLDER_NAME` / `FOLDER_NAME_Z`, `DOWNLOAD_FOLDER`, `PATH_TO_COPY`, `ALLOWED_EXTENSIONS`, `DAYS_TO_SEARCH`, `RETENTION_DAYS`, `LOG_LEVEL`, `RESULT_RECEIVER_LIST`, `RESULT_EMAIL_SUBJECT`.
 
 ## Processor Contract
 

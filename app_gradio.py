@@ -18,6 +18,7 @@ import scheduler_db
 # --- Global objects ---
 LOG_DIR = "Log"
 scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
+_IS_RUNNING = False
 
 
 # --- Core Functions ---
@@ -46,37 +47,136 @@ def view_log_file(log_filename):
     except Exception as e:
         return f"Lỗi khi đọc file: {e}"
 
-def run_script_manual(skip_email, script_path="script.py", process_date=None):
-    """Starts the script for manual execution and returns immediate UI feedback."""
+def run_script_streaming(skip_email, script_path="script.py", process_date=None):
+    """Starts the script for manual execution, streams console output to Gradio UI,
+    and locks the run buttons until completion.
+    """
+    global _IS_RUNNING
+
+    if _IS_RUNNING:
+        yield (
+            "⚠️ Đang có một tác vụ khác đang thực thi. Vui lòng chờ tác vụ hiện tại hoàn tất trước khi chạy tiếp!",
+            gr.update(interactive=False),
+            gr.update(interactive=False)
+        )
+        return
+
     if not script_path:
         script_path = "script.py"
-    
-    command = [sys.executable, script_path]
+
+    command = [sys.executable, "-u", script_path]
     if skip_email:
         command.append("--skip-email")
-        
-    if process_date:
-        # Validate date format YYYY-MM-DD
-        try:
-            datetime.strptime(process_date, "%Y-%m-%d")
-            command.extend(["--process-date", process_date])
-        except ValueError:
-            return "❌ Lỗi: Định dạng ngày không hợp lệ. Vui lòng dùng YYYY-MM-DD."
 
+    valid_dates = []
+    if process_date:
+        from cli_utils import parse_date_list
+        try:
+            valid_dates = parse_date_list(process_date)
+        except ValueError as e:
+            yield (f"❌ Lỗi định dạng ngày: {e}", gr.update(interactive=True), gr.update(interactive=True))
+            return
+        if not valid_dates:
+            yield ("❌ Lỗi: Không có ngày hợp lệ nào được chỉ định.", gr.update(interactive=True), gr.update(interactive=True))
+            return
+        command.extend(["--process-date", process_date])
+
+    _IS_RUNNING = True
+    start_time = datetime.now()
+    timestamp = start_time.strftime("%Y-%m-%d %H:%M:%S")
+    mode = "Chỉ xử lý file (bỏ qua email)" if skip_email else "Toàn bộ quy trình"
+    if valid_dates:
+        date_str_list = ", ".join(d.strftime("%Y-%m-%d") for d in valid_dates)
+        date_info = f"{len(valid_dates)} ngày: {date_str_list}"
+    else:
+        date_info = "Hôm qua (mặc định)"
+
+    init_header = (
+        f"[{timestamp}] BẮT ĐẦU TÁC VỤ: {script_path}\n"
+        f"📅 Ngày xử lý: {date_info}\n"
+        f"⚙️ Chế độ: {mode}\n"
+        f"{'=' * 70}\n"
+    )
+
+    log_buffer = [init_header]
+    # Khóa 2 nút bấm ngay lập tức
+    yield (
+        "".join(log_buffer),
+        gr.update(interactive=False),
+        gr.update(interactive=False)
+    )
+
+    process = None
     try:
-        subprocess.Popen(command)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        mode = "Chỉ xử lý file" if skip_email else "Toàn bộ quy trình"
-        date_msg = f" (Ngày: {process_date})" if process_date else " (Ngày: Hôm qua)"
-        return f"[{timestamp}] Đã bắt đầu chạy tác vụ ({script_path}){date_msg}. Chế độ: {mode}. Xem tab 'Xem Logs' để theo dõi chi tiết."
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1
+        )
+
+        for line in iter(process.stdout.readline, ''):
+            if not line:
+                break
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+            log_buffer.append(line)
+            if len(log_buffer) > 2000:
+                log_buffer.pop(0)
+
+            yield (
+                "".join(log_buffer),
+                gr.update(interactive=False),
+                gr.update(interactive=False)
+            )
+
+        process.wait()
+        exit_code = process.returncode
+        duration = datetime.now() - start_time
+        status_label = "✅ THÀNH CÔNG" if exit_code == 0 else "❌ CÓ LỖI"
+        summary_msg = (
+            f"\n{'=' * 70}\n"
+            f"🏁 HOÀN TẤT TÁC VỤ (Thời gian: {duration.total_seconds():.1f}s) - Exit code: {exit_code} ({status_label})\n"
+        )
+        log_buffer.append(summary_msg)
+        sys.stdout.write(summary_msg)
+        sys.stdout.flush()
+
     except Exception as e:
-        return f"Lỗi khi bắt đầu tác vụ: {e}"
+        err_msg = f"\n❌ Lỗi khi khởi chạy tiến trình: {e}\n"
+        log_buffer.append(err_msg)
+        sys.stdout.write(err_msg)
+        sys.stdout.flush()
+
+    finally:
+        _IS_RUNNING = False
+        if process and process.poll() is None:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+
+        yield (
+            "".join(log_buffer),
+            gr.update(interactive=True),
+            gr.update(interactive=True)
+        )
 
 def run_scheduled_job(schedule_id: int, skip_email: bool):
     """
     Runs the script for a scheduled job, waits for it to complete, and logs the outcome.
     This function is executed by the APScheduler in a background thread.
     """
+    global _IS_RUNNING
+    if _IS_RUNNING:
+        scheduler_db.log_run(schedule_id, "NOK", "Bị hủy vì đang có tác vụ khác đang thực thi.")
+        return
+
+    _IS_RUNNING = True
     # Lấy thông tin lịch để biết file script cần chạy
     sched_info = scheduler_db.get_schedule(schedule_id)
     script_path = sched_info.get('script_path', 'script.py') if sched_info else "script.py"
@@ -95,13 +195,19 @@ def run_scheduled_job(schedule_id: int, skip_email: bool):
         if process.returncode == 0:
             status = "OK"
             details = "Tác vụ hoàn thành thành công."
+        elif process.returncode == 2:
+            status = "NOK"
+            details = f"Tham số không hợp lệ khi chạy {script_path}. Stderr: {process.stderr[-500:]}"
         else:
             status = "NOK"
-            details = f"Lỗi khi chạy {script_path}. Stderr: {process.stderr[-500:]}"
+            details = (f"Lỗi khi chạy {script_path} (exit={process.returncode}). "
+                       f"Stderr: {process.stderr[-500:]}")
         
         scheduler_db.log_run(schedule_id, status, details)
     except Exception as e:
         scheduler_db.log_run(schedule_id, "NOK", f"Lỗi nghiêm trọng khi khởi chạy job: {e}")
+    finally:
+        _IS_RUNNING = False
 
 
 # --- Scheduler and DB Interaction Logic ---
@@ -275,15 +381,20 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
             
             with gr.Row():
                 manual_date_input = gr.Textbox(
-                    label="Ngày xử lý (YYYY-MM-DD)", 
-                    placeholder="Để trống: Mặc định lấy ngày Hôm qua. Chạy dữ liệu với 1 ngày cụ thể, điền thông tin dạng YYYY-MM-DD, ví dụ: 2024-01-01",
+                    label="Ngày xử lý (YYYY-MM-DD, nhiều ngày cách nhau bằng dấu ,)",
+                    placeholder="Để trống: Mặc định lấy ngày Hôm qua. Chạy dữ liệu cho 1 hoặc nhiều ngày, ví dụ: 2026-10-01, 2026-10-02, 2026-10-03 (nhiều ngày sẽ chạy tuần tự, ngày lỗi sẽ bị bỏ qua)",
                     value=""
                 )
 
             with gr.Row():
-                run_full_button = gr.Button("🚀 Chạy với file script đã chọn")
+                run_full_button = gr.Button("🚀 Chạy với file script đã chọn", variant="primary")
                 run_skip_email_button = gr.Button("⏩ Chạy chỉ xử lý file (Bỏ qua download email attachment)")
-            manual_run_status = gr.Textbox(label="Trạng thái", interactive=False)
+            manual_run_status = gr.Textbox(
+                label="🖥️ Live Terminal Output (Tiến trình đang chạy)", 
+                lines=18, 
+                interactive=False, 
+                autoscroll=True
+            )
 
             refresh_scripts_btn.click(
                 lambda: gr.Dropdown(choices=get_python_scripts()), 
@@ -366,14 +477,14 @@ with gr.Blocks(title="Automate Report BI - Dashboard") as automate_report_server
     # --- Event Handlers ---
     # Manual run handlers updated to pass script path AND process date
     run_full_button.click(
-        fn=run_script_manual, 
+        fn=run_script_streaming, 
         inputs=[gr.State(False), manual_script_dropdown, manual_date_input], 
-        outputs=[manual_run_status]
+        outputs=[manual_run_status, run_full_button, run_skip_email_button]
     )
     run_skip_email_button.click(
-        fn=run_script_manual, 
+        fn=run_script_streaming, 
         inputs=[gr.State(True), manual_script_dropdown, manual_date_input], 
-        outputs=[manual_run_status]
+        outputs=[manual_run_status, run_full_button, run_skip_email_button]
     )
     
     add_button.click(

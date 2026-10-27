@@ -30,7 +30,7 @@ app_gradio.py (Web UI + APScheduler) ── subprocess ──> script.py (orches
 5. **Giải nén** mọi file ZIP trong `downloads/`.
 6. **Xử lý dữ liệu** bằng 4 processors (xem bên dưới), mỗi processor ra DataFrames cấp site: `SiteID, {3G|4G}_User, {3G|4G}_Speed, {3G|4G}_Voice, {3G|4G}_Data`.
 7. **Kết hợp:** concat Ericsson + ZTE cho từng tầng 3G/4G → merge outer theo `SiteID` (giá trị thiếu = 0) → thêm cột `Date`.
-8. **Lưu `Aggregate.xlsx`** (thư mục cha của project): append vào dữ liệu cũ, chỉ giữ **30 ngày gần nhất**, ghi bằng openpyxl `write_only` theo chunk 10.000 dòng (ổn định cho ~180k dòng), ghi file tạm rồi replace atomic.
+8. **Lưu `Aggregate.xlsx`** (thư mục cha của project): xoá dữ liệu cũ của **đúng ngày đang xử lý** rồi append (chạy lại một ngày là idempotent, không nhân đôi dòng), chỉ giữ **30 ngày gần nhất** (`RETENTION_DAYS`, so sánh theo ngày), ghi bằng openpyxl `write_only` theo chunk 10.000 dòng (ổn định cho ~180k dòng), ghi file tạm rồi replace atomic.
 9. **Sao chép** kết quả sang thư mục backup (`PATH_TO_COPY` trong `script.py`).
 10. **Gửi email thông báo** thành công/thất bại kèm file log.
 
@@ -39,6 +39,7 @@ app_gradio.py (Web UI + APScheduler) ── subprocess ──> script.py (orches
 - Dữ liệu của ngày **T** nằm trong email gửi ngày **T+1**.
 - `process_date` (mặc định: hôm qua) → `email_search_date = process_date + 1 ngày`.
 - Tìm email theo đúng ngày (00:00:00–23:59:59) bằng múi giờ `Asia/Ho_Chi_Minh`.
+- **Backfill nhiều ngày:** `--process-date` (và ô input ngày trên Web UI) nhận **list các ngày cách nhau bằng dấu `,`** (ví dụ `2026-10-01,2026-10-02,2026-10-03`). App loop chạy tuần tự theo thứ tự user nhập; mỗi ngày một vòng pipeline riêng (log riêng, append riêng vào `Aggregate.xlsx`). **Nếu một ngày bị lỗi dữ liệu → bypass (có email báo lỗi) và tiếp tục chạy các ngày còn lại.** Cuối cùng in tổng kết OK/FAIL cho từng ngày. Exchange chỉ kết nối **1 lần duy nhất** cho cả danh sách.
 
 ---
 
@@ -49,6 +50,7 @@ app_gradio.py (Web UI + APScheduler) ── subprocess ──> script.py (orches
 | `app_gradio.py` | Entry point chính – Web UI (Gradio) + scheduler (APScheduler). |
 | `script.py` | Orchestrator pipeline ETL, có thể chạy độc lập từ CLI. Chứa toàn bộ khối CẤU HÌNH (subject, sender, folder, ngày…). |
 | `downloademailonly.py` | Chỉ tải email + giải nén, không xử lý dữ liệu (dùng khi test/thu thập thủ công). |
+| `cli_utils.py` | `build_arg_parser()` + `parse_date_list()` dùng chung cho `script.py` / `downloademailonly.py`. Không import thư viện nặng. |
 | `testconnection.py` | Kiểm tra kết nối Exchange với cấu hình `.env` hiện tại. |
 | `exchange_lib.py` | `get_exchange_account()`, `find_and_download_emails()`, `send_email()`. |
 | `extract_zippy.py` | `extract_all_zips()`, `extract_and_cleanup_zips()`. |
@@ -136,6 +138,7 @@ Các hằng số có thể chỉnh trực tiếp ở khối **CẤU HÌNH** phí
 | `PATH_TO_COPY` | Thư mục backup kết quả (đặt `""` để tắt). |
 | `ALLOWED_EXTENSIONS` | Giới hạn định dạng file tải về (trống = tất cả). |
 | `DAYS_TO_SEARCH` | Số ngày tìm ngược (thường bỏ qua khi có `target_date`). |
+| `RETENTION_DAYS` | Số ngày giữ trong `Aggregate.xlsx` (mặc định 30). Dòng cũ hơn bị lọc khi ghi. |
 | `LOG_LEVEL` | `WARNING` / `INFO` / `DEBUG`. |
 | `RESULT_RECEIVER_LIST` | Người nhận email báo kết quả. |
 
@@ -152,7 +155,7 @@ python app_gradio.py
 Mở trình duyệt: `http://127.0.0.1:7860`.
 
 Các tab:
-- **▶️ Chạy thủ công** – chọn file script (mặc định `script.py`, có thể nhập tên khác), chọn ngày xử lý (để trống = hôm qua), chạy toàn bộ hoặc bỏ qua download email.
+- **▶️ Chạy thủ công** – chọn file script (mặc định `script.py`, có thể nhập tên khác), chọn ngày xử lý (để trống = hôm qua; **hỗ trợ nhiều ngày cách nhau bằng dấu `,`** để backfill – ngày lỗi được bypass tự động), chạy toàn bộ hoặc bỏ qua download email. **Hỗ trợ live-stream log tiến trình chạy trực tiếp lên web và tự động khóa (lock) nút chạy** để chống click trùng lặp.
 - **📅 Lịch chạy** –
   - *Thêm mới lịch chạy:* tên lịch (duy nhất), script, tần suất (Hàng ngày / Hàng tuần + ngày trong tuần), giờ chạy (HH:MM), skip-email, kích hoạt ngay.
   - *Quản lý lịch chạy đã có:* bảng danh sách, kích hoạt / dừng / xem lịch sử (thời gian, OK/NOK, chi tiết) / xóa (có bước xác nhận).
@@ -173,16 +176,30 @@ python script.py --skip-email
 # Chạy cho một ngày cụ thể
 python script.py --process-date 2026-10-25
 
+# Backfill NHIỀU NGÀY: list các ngày cách nhau bằng dấu ','
+# (chạy tuần tự, ngày lỗi sẽ bị bypass và tiếp tục ngày kế tiếp)
+python script.py --process-date 2026-10-01,2026-10-02,2026-10-03
+
 # Tổ hợp
-python script.py --skip-email --process-date 2026-10-25
+python script.py --skip-email --process-date 2026-10-20,2026-10-21
 ```
+
+**Exit code** (dùng cho scheduler / script gọi ngoài):
+
+| Exit | Ý nghĩa |
+|---|---|
+| `0` | Tất cả ngày chạy thành công |
+| `1` | Có ít nhất một ngày lỗi (đã bypass) hoặc không kết nối được Exchange |
+| `2` | Tham số `--process-date` không hợp lệ |
+
+**Lưu ý retention:** chỉ giữ `RETENTION_DAYS` (mặc định 30) ngày trong `Aggregate.xlsx`. Backfill ngày cũ hơn sẽ được xử lý nhưng **bị lọc bỏ khi ghi**; `script.py` in cảnh báo ngay ở đầu (trước khi chạy) nếu ngày nằm ngoài cửa sổ này.
 
 Các công cụ phụ:
 
 ```bash
 python testconnection.py            # Kiểm tra kết nối Exchange
-python downloademailonly.py         # Chỉ tải email + giải nén
-python downloademailonly.py --skip-email --process-date 2026-10-25
+python downloademailonly.py         # Chỉ tải email + giải nén (cũng hỗ trợ list ngày)
+python downloademailonly.py --skip-email --process-date 2026-10-20,2026-10-21
 ```
 
 Mỗi processor cũng có thể chạy riêng để test: `python processing_3G_ZTE.py` (cần file đã có trong `downloads/`).

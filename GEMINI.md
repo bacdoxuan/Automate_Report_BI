@@ -29,7 +29,7 @@ app_gradio.py (Gradio Web UI + APScheduler)
 
 ### End-to-End Execution Flow (`script.py`)
 
-1. **Logging Setup:** Creates or appends to `Log/log_YYYY-MM-DD.txt` (named after `process_date`), redirecting both `stdout` and `stderr` to terminal and log file simultaneously.
+1. **Logging Setup:** Creates or appends to `Log/log_YYYY-MM-DD.txt` (named after `process_date`), redirecting both `stdout` and `stderr` to terminal and log file simultaneously. Each date opens its own log and closes the previous one, so a multi-date backfill never cross-writes between logs; all output still mirrors to the real console.
 2. **Directory Cleanup:** Purges and recreates the `downloads/` directory before each run to avoid processing stale data.
 3. **Two-Pass Email Retrieval (`exchange_lib.py`):**
    - **Pass 1 (Personal Mailbox):** Searches `inbox` for emails from `bac.dx@vietnamobile.com.vn` matching 4 Ericsson subjects:
@@ -57,11 +57,12 @@ app_gradio.py (Gradio Web UI + APScheduler)
    - Performs outer merge on `SiteID` (missing values filled with 0).
    - Adds the `Date` column (formatted as `process_date`).
 7. **Consolidated Excel Export (`Aggregate.xlsx`):**
-   - Appends today's data to existing records in `../Aggregate.xlsx`.
-   - Filters out records older than 30 days.
+   - Deletes existing rows for the **exact `process_date`** first, then appends — re-running a date is idempotent and never duplicates rows.
+   - Filters out records older than `RETENTION_DAYS` (default 30), compared by **normalized date** so the boundary day is kept. `script.py` warns up front when a requested date falls outside this window.
    - Writes the dataset using `openpyxl` with `write_only=True` in 10,000-row chunks to a temporary `.tmp` file, then atomically replaces `Aggregate.xlsx`.
 8. **Backup Replication:** Copies `Aggregate.xlsx` to `PATH_TO_COPY` (e.g. `D:/Project/Automate PowerBI - Display Site Information/Backup_Aggregate/`).
-9. **Status Notification (`notification.py`):** Sends a success/failure notification email with execution details and attached log file to `RESULT_RECEIVER_LIST`.
+9. **Status Notification (`notification.py`):** Sends a success/failure notification email with execution details and attached log file to `RESULT_RECEIVER_LIST`. Mail errors are caught and logged; they never turn an otherwise successful date into a failure.
+10. **Multi-date backfill:** `--process-date` accepts a comma-separated list. `main()` connects to Exchange once, then runs each date sequentially, bypassing (and reporting) any date that fails. Exit codes: `0` all dates OK, `1` at least one date failed or Exchange connect failed, `2` invalid `--process-date`.
 
 ### Date Logic & Timezones
 
@@ -200,6 +201,7 @@ python testconnection.py
 # Download emails and extract archives only (no data transformation)
 python downloademailonly.py
 python downloademailonly.py --skip-email --process-date 2026-10-25
+python downloademailonly.py --process-date 2026-10-20,2026-10-21
 
 # Test individual processor modules directly (requires files in downloads/)
 python processing_3G_Ericsson.py
