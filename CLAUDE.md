@@ -4,343 +4,130 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python automation tool that downloads PowerBI performance reports from Microsoft Exchange servers for Vietnamobile. It connects to on-premises Exchange servers using NTLM authentication, searches for emails matching specific criteria (subject lines, senders, date ranges), and downloads attachments to a local directory.
+ETL automation for Vietnamobile network KPI reporting. It connects to an on-premises Microsoft Exchange server over EWS/NTLM, downloads 3G/4G Ericsson and ZTE report attachments for a single processing date, extracts ZIPs, transforms busy-hour/traffic metrics, aggregates cell data to site level, and appends the result to one PowerBI source file (`Aggregate.xlsx`). A Gradio web UI adds scheduling and log viewing. UI labels, README, and most runtime messages are in Vietnamese.
 
-## Common Commands
+## Commands
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 
-# Run the main automation script
+# Full pipeline (download + extract + process), defaults to yesterday's data
 python script.py
 
-# Test Exchange server connection (without downloading)
+# Process files already present in downloads/ (no Exchange connection)
+python script.py --skip-email
+
+# Process a specific data date
+python script.py --process-date 2026-10-25
+python script.py --skip-email --process-date 2026-10-25
+
+# Download + extract only (no data processing)
+python downloademailonly.py [--skip-email] [--process-date YYYY-MM-DD]
+
+# Validate .env / Exchange connectivity
 python testconnection.py
 
-# Download emails only (without data processing)
-python downloademailonly.py
-
-# Launch web UI with scheduling dashboard
+# Web dashboard + scheduler (http://127.0.0.1:7860)
 python app_gradio.py
+
+# Per-processor smoke test against files in downloads/
+python processing_3G_Ericsson.py
+python processing_3G_ZTE.py
+python processing_4G_Ericsson.py
+python processing_4G_ZTE.py
 ```
 
-## Architecture Overview
+There is no test suite, linter, or build step. Validation is running the scripts above. `script.py --skip-email` is the fastest end-to-end check when `downloads/` is already populated.
 
-### Two-Pass Email Processing
+## Working Directory and Outputs
 
-The application uses a two-pass strategy to collect reports from different email sources:
+All runtime paths are relative to the **current working directory**, not the script file: `downloads/`, `Log/`, `schedules.db`. Launch everything from the repository root. `app_gradio.py` spawns `script.py` with the inherited CWD.
 
-1. **Pass 1 (Personal Mailbox)**: Downloads reports from the user's own mailbox
-   - Folder: "Myself"
-   - Sender: User's email address
-   - Subjects: 3G_Throughput, 3G_Traffic_User, VoLTE_Traffic_Ericsson, North_LTE_Traffic_Data
+- Final report: `Aggregate.xlsx` in the **parent** of this project directory (`Path(__file__).parent.parent`).
+- Optional backup copy: `PATH_TO_COPY` in `script.py` (currently `.../Backup_Aggregate/`). A copy failure is logged but does not fail the run.
+- Logs: `Log/log_<process_date>.txt`.
+- Downloads: `downloads/` is deleted and recreated on every non-`--skip-email` run.
 
-2. **Pass 2 (Shared Mailbox)**: Downloads reports from a shared performance reporting mailbox
-   - Folder: "inbox" (in shared account)
-   - Sender: vnm.performance.reporting@vietnamobile.com.vn
-   - Subjects: [EXTERNAL]Task name:\* (covers 3G/4G ZTE traffic variants)
+## Pipeline Architecture
 
-### Core Components
-
-- **`script.py`** - Main entry point that orchestrates the workflow:
-  - Loads credentials from `.env` file
-  - Clears the download folder before processing
-  - Executes both email search passes (personal + shared mailbox)
-  - Defines all search criteria (subjects, senders, folders)
-  - Triggers automatic ZIP extraction after downloads complete
-
-- **`exchange_lib.py`** - Core library with three main functions:
-  - `get_exchange_account()` - Establishes Exchange connection using NTLM authentication
-  - `find_subfolder()` - Navigates mailbox folder hierarchy
-  - `find_and_download_emails()` - Searches emails by criteria (date range, subject, sender, folder) and downloads attachments
-
-- **`extract_zippy.py`** - ZIP file extraction module:
-  - `extract_all_zips()` - Finds and extracts all ZIP files in download folder
-  - `extract_and_cleanup_zips()` - Extracts and optionally deletes ZIP files after extraction
-  - UTF-8 encoding support for Windows console
-  - Detailed progress reporting with emoji indicators
-
-- **`testconnection.py`** - Standalone utility for validating Exchange connectivity
-
-- **`notification.py`** - Email notification system:
-  - `Notifier` class for sending success/failure alerts
-  - Sends automated emails with execution logs attached
-  - Integrated with `script.py` for error handling and result reporting
-
-- **`downloademailonly.py`** - Alternative script for email-only operations:
-  - Downloads emails without running data processing
-  - Supports the same two-pass email retrieval strategy
-  - Useful for testing or manual report collection
-
-- **`app_gradio.py`** - Web UI dashboard and scheduler:
-  - Gradio-based interface for managing automation tasks
-  - `BackgroundScheduler` using APScheduler for job scheduling
-  - Displays log files and execution history
-  - Integrates with `scheduler_db.py` for persisting schedule configurations
-
-- **`scheduler_db.py`** - SQLite database module:
-  - `init_db()` - Initialize database tables (schedules, logs)
-  - Manages job schedules with frequency, day/time, and activity status
-  - Tracks execution history and logs for all scheduled runs
-  - Supports migrations for schema updates
-
-### Data Processing Modules
-
-All processing modules follow a standardized 4-step workflow:
-
-1. **Import** - Load data from Excel/CSV files
-2. **Transform** - Calculate metrics (max users, traffic sums, speeds)
-3. **Merge** - Combine multiple sheets/files into single DataFrame
-4. **Standardize** - Normalize column names to common format
-5. **Clean** - Remove invalid data (rows with Data = 0)
-6. **Aggregate** - Roll up cell-level data to site-level by SiteID
-
-#### 3G Ericsson Processor
-
-- **`processing_3G_Ericsson.py`** - `Ericsson3GProcessor` class
-  - **Input Files:**
-    - `Automate_3G_Throughput.xlsx` (User_TP_DL sheet)
-    - `Automate_3G_Traffic_User.xlsx` (Voice_Erlang, Data_MB, HS_User sheets)
-  - **Transformations:**
-    - Extract max users and busy hour index from HS_User
-    - Calculate voice/data traffic sums
-    - Lookup 3G speed at busy hour
-  - **Cell-Level Output:** `Final_3G_Result` (Ucell ID, Max_user, 3G_Speed, Voice, Data)
-  - **Standardized:** `3G_Cell_ID, 3G_User, 3G_Speed, 3G_Voice, 3G_Data`
-  - **Site-Level Output:** `3G_Ericsson_Site_Data` (SiteID + aggregated metrics)
-
-#### 3G ZTE Processor
-
-- **`processing_3G_ZTE.py`** - `ZTE3GProcessor` class
-  - **Input Files:** 4 CSV files with pattern matching
-    - `Automate_3G_ZTE_Traffic_EMS1_WD_*.csv`
-    - `Automate_3G_ZTE_Traffic_EMS2_WD_*.csv`
-    - `Automate_3G_ZTE_User_TP_EMS1_BH_*.csv`
-    - `Automate_3G_ZTE_User_TP_EMS2_BH_*.csv`
-  - **Processing:**
-    - Concatenate EMS1 + EMS2 traffic data
-    - Concatenate EMS1 + EMS2 user throughput data
-    - Merge on Cell Name
-  - **Cell-Level Output:** `3G_ZTE_DATA` (Cell Name, Average HSDPA Users, User DL Throughput, AMR Traffic, Total Data Traffic)
-  - **Standardized:** `3G_Cell_ID, 3G_User, 3G_Speed, 3G_Voice, 3G_Data`
-  - **Site-Level Output:** `3G_ZTE_Site_Data` (SiteID + aggregated metrics)
-
-#### 4G ZTE Processor
-
-- **`processing_4G_ZTE.py`** - `ZTE4GProcessor` class
-  - **Input Files:** 4 CSV files with pattern matching
-    - `Automate_4G_ZTE_Traffic_EMS1_WD_*.csv`
-    - `Automate_4G_ZTE_Traffic_EMS2_WD_*.csv`
-    - `Automate_4G_ZTE_User_TP_EMS1_BH_*.csv`
-    - `Automate_4G_ZTE_User_TP_EMS2_BH_*.csv`
-  - **Processing:**
-    - Concatenate EMS1 + EMS2 traffic data
-    - Concatenate EMS1 + EMS2 user throughput data
-    - Merge on Cell Name
-  - **Cell-Level Output:** `4G_ZTE_DATA` (Cell Name, Average DL Active User Number, DL_THP_PER_USER, LTE QCI1 Traffic, Data)
-  - **Standardized:** `4G_Cell_ID, 4G_User, 4G_Speed, 4G_Voice, 4G_Data`
-  - **Site-Level Output:** `4G_ZTE_Site_Data` (SiteID + aggregated metrics)
-
-#### 4G Ericsson Processor
-
-- **`processing_4G_Ericsson.py`** - `Ericsson4GProcessor` class
-  - **Input Files:**
-    - `Automate_North_LTE_Traffic_Data.xlsx` (Data_MB, UE_Active_DL, UE_TP_DL sheets)
-    - `Automate_VoLTE_Traffic_Ericsson.xlsx` (VoLTE_Traffic sheet)
-  - **Transformations:**
-    - Calculate total data traffic (sum of 24 hours)
-    - Extract max UE active and busy hour index
-    - Lookup throughput at max UE hour
-    - Calculate VoLTE traffic sum
-  - **Cell-Level Output:** `4G_ERICSSON_DATA` (Cell ID, max_UE_Active, throughput_max_UE_Active, traffic_VoLTE_4G, traffic_data_4G)
-  - **Standardized:** `4G_Cell_ID, 4G_User, 4G_Speed, 4G_Voice, 4G_Data`
-  - **Site-Level Output:** `4G_Ericsson_Site_Data` (SiteID + aggregated metrics)
-
-#### Common Processing Steps
-
-All processors implement these methods:
-
-- `standardize_columns()` - Normalize column names to common format (3G/4G_Cell_ID, User, Speed, Voice, Data)
-- `clean_data()` - Remove rows where Data column = 0
-- `aggregate_by_site()` - Extract SiteID from Cell_ID (characters 1-6) and aggregate:
-  - **SiteID** - Extracted from Cell_ID[1:7]
-  - **User** - Sum of all cells in site
-  - **Speed** - Average speed across cells
-  - **Voice** - Sum of voice traffic
-  - **Data** - Sum of data traffic
-
-### Data Flow
-
-**Full Processing Pipeline (`script.py`):**
-
-```bash
-script.py (config & orchestration)
-  ├─> exchange_lib functions
-  │     ├─> get_exchange_account() → Exchange connection
-  │     ├─> find_subfolder() → Locate target folder
-  │     └─> find_and_download_emails() → Search & download
-  ├─> extract_zippy.extract_all_zips() → Extract downloaded ZIPs
-  ├─> Data Processing Modules
-  │     ├─> processing_3G_Ericsson.Ericsson3GProcessor
-  │     ├─> processing_3G_ZTE.ZTE3GProcessor
-  │     ├─> processing_4G_ZTE.ZTE4GProcessor
-  │     └─> processing_4G_Ericsson.Ericsson4GProcessor
-  └─> notification.Notifier.send_email() → Success/failure alerts
+```
+app_gradio.py ──subprocess──> script.py ──> exchange_lib.py (EWS/NTLM)
+                                  ├──────> extract_zippy.py
+                                  ├──────> processing_*.py (4 processors)
+                                  ├──────> notification.py (success/failure email + log)
+                                  └──────> ../Aggregate.xlsx
 ```
 
-**Alternative Workflows:**
+`script.py` is the orchestrator; all tunable constants live in its top "CẤU HÌNH" block. It:
 
-- `downloademailonly.py` - Downloads only (skips data processing)
-- `app_gradio.py` - Web UI with scheduling via `scheduler_db.py`
-  - Uses `BackgroundScheduler` to trigger `script.py` at configured intervals
-  - Stores job configurations and execution logs in SQLite database
+1. Parses `--skip-email` / `--process-date`, then derives `process_date` (default yesterday) and `email_search_date = process_date + 1 day`.
+2. Connects with `get_exchange_account()` (EWS `NTLM`, `DELEGATE`, `autodiscover=False`).
+3. Clears/recreates `downloads/`.
+4. Downloads **Pass 1 (Ericsson)**: folder `inbox`, sender `SENDER_EMAIL`, subjects in `LIST_OF_EMAILS` (4 XLSX reports).
+5. Downloads **Pass 2 (ZTE)**: folder `inbox`, sender `SENDER_EMAIL_Z`, subjects in `LIST_OF_EMAILS_Z` (8 `[EXTERNAL]Task name:...` reports delivered as ZIPs).
+6. Extracts every ZIP in `downloads/`.
+7. Runs the four processors, concatenates Ericsson + ZTE per technology, outer-merges 3G and 4G on `SiteID`, fills missing with 0, adds `Date`, renames to the final PowerBI schema.
+8. Appends to `Aggregate.xlsx`, keeps only the last 30 days, sorts by `Date`, and writes atomically.
+9. Copies to `PATH_TO_COPY` (if set) and emails success/failure via `Notifier`.
+
+Both passes query the same `inbox`; they are distinguished only by sender and exact subject match. Email search is by `datetime_received` within one local day (`Asia/Ho_Chi_Minh`) and `subject` exact-equals the configured string — subject changes in Exchange require updating the lists in `script.py`.
+
+**Date rule:** data for day **T** arrives in an email sent on **T+1**. `--process-date` is the data date, so the email search uses `process_date + 1 day`. `DAYS_TO_SEARCH` is effectively bypassed because `script.py` always passes `target_date`.
 
 ## Configuration
 
-Environment variables (stored in `.env`, never committed):
+`.env` keys (never committed): `EMAIL_ADDRESS`, `EMAIL_PASSWORD`, `EXCHANGE_SERVER`, `EXCHANGE_DOMAIN`, `EXCHANGE_USERNAME`. The NTLM username is sent as `DOMAIN\USERNAME`.
 
-- `EMAIL_ADDRESS` - User's Exchange email address
-- `EMAIL_PASSWORD` - User's password
-- `EXCHANGE_SERVER` - Exchange server hostname
-- `EXCHANGE_DOMAIN` - Domain for NTLM authentication
-- `EXCHANGE_USERNAME` - Domain username for NTLM
+Constants in `script.py` that are commonly edited: `LIST_OF_EMAILS` / `LIST_OF_EMAILS_Z`, `SENDER_EMAIL` / `SENDER_EMAIL_Z`, `FOLDER_NAME` / `FOLDER_NAME_Z`, `DOWNLOAD_FOLDER`, `PATH_TO_COPY`, `ALLOWED_EXTENSIONS`, `DAYS_TO_SEARCH`, `LOG_LEVEL`, `RESULT_RECEIVER_LIST`, `RESULT_EMAIL_SUBJECT`.
 
-Additional configuration in `script.py`:
+## Processor Contract
 
-- `SEARCH_SUBJECTS` - List of email subject keywords to filter on
-- `SHARED_EMAIL_ADDRESS` - Shared mailbox email for second pass
-- `SHARED_SENDER_EMAIL` - Email address to filter in shared mailbox
-- `SHARED_SEARCH_SUBJECTS` - Subject filters for shared mailbox
-- `START_DATE` and `END_DATE` - Email search date range
-- `DOWNLOAD_FOLDER` - Local directory for downloaded files
+Each processor (`Ericsson3GProcessor`, `ZTE3GProcessor`, `Ericsson4GProcessor`, `ZTE4GProcessor`) follows the same call sequence used by `script.py`:
 
-## Setup & Installation
+```
+<load>_data() → merge_final_result() → standardize_columns() → clean_data() → aggregate_by_site()
+```
 
-1. **Install Python dependencies:**
+Loader names differ: `load_all_3g_data` (3G Ericsson, also calls `transform_all()` before merge), `load_all_3g_zte_data`, `load_all_4g_ericsson_data`, `load_all_4g_zte_data`. Ericsson input is multi-sheet XLSX; ZTE input is 4 CSVs per technology found by glob because filenames carry dynamic suffixes (`Automate_{3G,4G}_ZTE_{Traffic_EMS1/2_WD,User_TP_EMS1/2_BH}_*.csv`).
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+Common rules:
 
-2. **Configure environment variables** in `.env` file (see Configuration section)
+- Standardized cell columns: `{3G|4G}_Cell_ID, {3G|4G}_User, {3G|4G}_Speed, {3G|4G}_Voice, {3G|4G}_Data`.
+- `clean_data()` drops rows where `{3G|4G}_Data == 0`.
+- `aggregate_by_site()` extracts `SiteID = Cell_ID[1:7]` (6 characters), then **sums** User/Voice/Data and **averages** Speed.
+- Each processor stores intermediate/final frames in `self.dataframes[...]` for inspection.
+- Ericsson busy-hour logic locates the max-user column per row; use `safe_idxmax_axis1()` (already defined) instead of `DataFrame.idxmax(axis=1)` so all-NA rows do not break under pandas 3.x.
 
-3. **Initialize scheduler database** (only needed for `app_gradio.py`):
-   - Database is auto-initialized on first run of `app_gradio.py`
-   - SQLite database stored in `schedules.db`
+Final `Aggregate.xlsx` columns:
 
-4. **Run the automation:**
-   - **Command-line only:** `python script.py`
-   - **Email download only:** `python downloademailonly.py`
-   - **Web dashboard:** `python app_gradio.py` (then open browser to localhost:7860)
+```
+Date, Site, 3G Sub, 3G Speed, 3G Voice traffic, 3G Data traffic,
+4G Sub, 4G Speed, 4G Voice traffic, 4G Data traffic
+```
 
-## Key Dependencies
+## Excel Writing
 
-**Required for all functionality:**
+Appending can produce ~180k rows, so `script.py` uses `write_dataframe_to_excel_chunked()` instead of `DataFrame.to_excel()`: openpyxl `Workbook(write_only=True)` in 10k-row chunks, `_excel_cell_value()` normalizes numpy/pandas/NaN values, and the workbook is saved to `.tmp` then `os.replace()`d for an atomic update. Preserve this path for any change touching `Aggregate.xlsx`; `to_excel()` risks memory blowups and file corruption on interruption.
 
-- `exchangelib` - Microsoft Exchange Web Services (EWS) client
-- `python-dotenv` - Environment variable management
-- `pandas` - Data processing and transformation
-- `openpyxl` - Excel file reading and writing
-- Standard library modules: `os`, `logging`, `shutil`, `datetime`, `zipfile`, `pathlib`, `glob`, `sqlite3`
+## Web UI and Scheduling
 
-**Optional (required only for web UI and scheduling):**
+`app_gradio.py` starts a `BackgroundScheduler` (`Asia/Ho_Chi_Minh`) and, on startup, calls `sync_scheduler_from_db()` to re-register active schedules from `schedules.db`. Job IDs are `db_job_<schedule_id>`.
 
-- `gradio` - Web interface framework (required for `app_gradio.py`)
-- `apscheduler` - Job scheduling library (required for `app_gradio.py`)
+- Manual runs use `subprocess.Popen` (fire-and-forget); the UI only reports that the process started, so check the Logs tab.
+- Scheduled runs use `subprocess.run` with captured output and record `OK`/`NOK` plus stderr tail via `scheduler_db.log_run()`. Scheduled runs do not pass `--process-date`, so they process yesterday by default.
+- Schedule rows store `script_path`, so any `.py` in the project can be scheduled, not just `script.py`.
 
-## Important Development Notes
+`scheduler_db.py` owns all SQLite access (`schedules`, `schedule_runs`). `init_db()` runs on import and performs the `script_path` column migration. Do not alter the schema outside this module.
 
-- **NTLM Authentication**: This solution is specific to on-premises Exchange servers with NTLM authentication. It uses `exchangelib` library which handles the protocol details.
-- **Folder Cleanup**: The application clears the entire download folder before each run to ensure fresh data. This is intentional per recent refactoring (commit: ba4dc41).
-- **Code Organization**: Previous refactoring (commit: 248135b) moved email checking and retrieval logic into the library module to separate concerns between orchestration (script.py) and Exchange operations (exchange_lib.py).
-- **Search Strategy**: Emails are filtered by date range, subject keywords, and sender. The two-pass approach handles both personal mailbox and shared mailbox scenarios with different search criteria for each.
-- **Attachment Filtering**: Downloaded files are filtered by extension during the download process.
-- **ZIP Extraction**: After downloading attachments, the script automatically extracts all ZIP files in the downloads folder to access CSV data files.
-- **Data Processing**: Modular processors for each vendor/technology (3G/4G Ericsson/ZTE) handle data transformation independently.
-- **Pattern Matching**: ZTE processors use glob pattern matching to find CSV files with dynamic suffixes.
+## Logging and Notifications
 
-## Logging
+`script.py`/`downloademailonly.py` replace `sys.stdout`/`sys.stderr` with the `Logger` class, duplicating output to the console and `Log/log_<process_date>.txt` (flushed per write). `notification.Notifier` sends a success or failure email with that log attached; on failure before a connection exists, `script.py` retries `get_exchange_account()` once just to send the alert. Console output uses emoji status markers (✅/❌/⚠️/📥).
 
-Console output includes emoji indicators (✅ for success, ❌ for errors, ℹ️ for info). Logs can be written to the `Log/` directory if configured in the logging setup.
+## Notes and Gotchas
 
-## Recent Changes
-
-- **Logging & Notification System:**
-  - Implemented `Logger` class to capture console output to file
-  - Created `notification.py` module for automated email reporting
-  - Added `send_email` capability to `exchange_lib.py`
-  - Integrated error handling in `script.py` to catch failures and send alerts
-  - Configured automatic success/failure emails with attached logs
-- **Data Processing Pipeline (Complete):**
-  - Added `processing_3G_Ericsson.py` - Process 3G Ericsson XLSX files with transformation logic
-  - Added `processing_3G_ZTE.py` - Process 3G ZTE CSV files with pattern matching
-  - Added `processing_4G_ZTE.py` - Process 4G ZTE CSV files with pattern matching
-  - Added `processing_4G_Ericsson.py` - Process 4G Ericsson XLSX files with multi-sheet handling
-  - Implemented standardization of column names across all processors
-  - Added data cleaning step (remove rows with Data = 0)
-  - Implemented site-level aggregation (extract SiteID and aggregate metrics)
-- Added `extract_zippy.py` module for automatic ZIP file extraction
-- Integrated ZIP extraction into main workflow (script.py)
-- Updated email subject lists for ZTE traffic reports (EMS1 and EMS2 variants)
-- Folder cleanup before processing (ensures fresh data)
-- Code refactoring to move Exchange operations to library module
-- Single file download verification
-- Exchange server connection validation
-
-## Workflow Summary
-
-1. **Connect** to Exchange server (NTLM authentication)
-2. **Clean** downloads folder
-3. **Download Pass 1** - Personal mailbox (4 XLSX files: Throughput, Traffic User, VoLTE, North LTE)
-4. **Download Pass 2** - Shared mailbox (8 ZIP files: 3G/4G ZTE Traffic + User TP for EMS1/EMS2)
-5. **Extract** all ZIP files automatically (8 CSV files extracted)
-6. **Process** data files:
-   - **3G Ericsson:**
-     - Import 2 XLSX files (4 sheets total)
-     - Transform: max users, busy hour, traffic sums, speed lookup
-     - Standardize → Clean → Aggregate
-     - Output: `3G_Ericsson_Site_Data` (2,172 sites from 8,582 cells)
-   - **3G ZTE:**
-     - Import 4 CSV files (EMS1/2 Traffic + User TP)
-     - Concatenate EMS1 + EMS2 data
-     - Merge traffic + user throughput
-     - Standardize → Clean → Aggregate
-     - Output: `3G_ZTE_Site_Data` (3,707 sites from 12,770 cells)
-   - **4G ZTE:**
-     - Import 4 CSV files (EMS1/2 Traffic + User TP)
-     - Concatenate EMS1 + EMS2 data
-     - Merge traffic + user throughput
-     - Standardize → Clean → Aggregate
-     - Output: `4G_ZTE_Site_Data` (SiteID + aggregated metrics)
-   - **4G Ericsson:**
-     - Import 2 XLSX files (4 sheets total)
-     - Transform: data traffic, max UE, throughput lookup, VoLTE traffic
-     - Standardize → Clean → Aggregate
-     - Output: `4G_Ericsson_Site_Data` (SiteID + aggregated metrics)
-7. **Result** - Site-level DataFrames ready for PowerBI import with standardized schema:
-   - `SiteID, User, Speed, Voice, Data` (consistent across all 4 processors)
-
-## Entry Points and Usage Scenarios
-
-### Main Entry Points
-
-1. **`script.py`** - Full automation pipeline
-   - **When to use:** Scheduled/automated execution in production
-   - **Does:** Download emails → Extract ZIPs → Process data → Send notifications
-   - **Output:** Site-level DataFrames (ready for PowerBI), execution log, notification email
-
-2. **`downloademailonly.py`** - Email retrieval only
-   - **When to use:** Manual report collection, troubleshooting email downloads, testing connectivity
-   - **Does:** Download emails → Extract ZIPs (no data processing)
-   - **Output:** Raw downloaded files in `downloads/` folder
-
-3. **`app_gradio.py`** - Web UI with scheduler
-   - **When to use:** Interactive management, scheduling multiple runs, monitoring execution history
-   - **Does:** Web interface for configuring job schedules, viewing logs, manually triggering runs
-   - **Output:** Browser interface at `http://localhost:7860`
-
-4. **`testconnection.py`** - Connection validation
-   - **When to use:** Debugging Exchange connectivity issues
-   - **Does:** Test connection to Exchange server with current `.env` credentials
-   - **Output:** Connection success/failure message
+- Exchange integration is specific to on-premises EWS with NTLM delegate access; do not switch to autodiscover.
+- `processing_4G_Ericsson` also reads `Automate_VoLTE_Traffic_Ericsson.xlsx`; all four Ericsson inputs must be present or the processor raises.
+- `SiteLocation.csv` and the Long/Lat lookup are currently commented out in `script.py`; location is handled elsewhere. Do not assume location columns exist.
+- `app_gradio.py` executes Gradio UI construction at import time (module-level `with gr.Blocks(...)`) and starts the scheduler at import; it is not import-safe for testing.
+- The project targets Windows; paths are built with `pathlib`/`os.path` but backslash literals appear in configuration examples.
+- `.trae/rules/project_rules.md` defines a 5-step workflow for large requests (analyze/plan, execute, test plan, debug, report). Follow it for substantial changes in this repository.
